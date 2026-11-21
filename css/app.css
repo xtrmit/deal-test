@@ -179,6 +179,17 @@ video.scan{width:100%;border-radius:16px;background:#000}
 .toast.on{opacity:1;transform:none;pointer-events:auto}
 .toast button{border:0;background:transparent;color:inherit;font-weight:800;text-decoration:underline;min-height:40px;padding:0 10px}
 
+/* Analyse IA */
+.ia .ia-syn{margin:2px 0;font-weight:700;line-height:1.45}
+.ia .ia-t{display:block;margin-top:8px;font-size:.85em}
+.ia ul{margin:4px 0;padding-left:18px;font-size:.88em;line-height:1.45}
+.ia .ia-delta{background:var(--line);border-radius:12px;padding:8px 12px}
+.ia details summary{cursor:pointer;font-weight:800;color:var(--accent);font-size:.9em;padding:4px 0}
+.ia .preuves{color:var(--muted)}
+.ia .desc p{font-size:.86em;line-height:1.5;color:var(--muted);white-space:normal}
+.ia-src{color:var(--accent)}
+.bdg.ia{background:var(--accent);color:#fff}
+
 /* Aides de calcul, galerie */
 .metrics .a-aide{cursor:pointer}
 .metrics dt.a-aide .i{color:var(--accent);font-weight:800;font-size:.9em}

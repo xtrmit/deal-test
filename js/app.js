@@ -38,15 +38,19 @@ function ago(t) {
 const dateFr = t => t ? new Date(t).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
 
 /* ================== Calcul d'un bien (UNE formule : scoring.js) ================== */
-// Caractéristiques physiques effectives = extraction serveur + corrections manuelles de la fiche.
+// Caractéristiques physiques effectives = extraction serveur <- analyse IA <- corrections manuelles de la fiche.
 function bienEffectif(b) {
   const a = Sync.data.annotations.get(b.lbc_id);
   const corr = (a && a.curseurs && a.curseurs.physique) || {};
+  const an = Sync.data.analyses && Sync.data.analyses.get(b.lbc_id);
+  const ia = Object.assign({}, (an && an.physique) || {});
+  const typeIA = ia.type; delete ia.type;
   const base = b.physique || { exclusions: [], inconnus: ['distance_mer', 'etat'], distance_mer: null, niveau_travaux: null, etat: null,
                                vue_mer: null, terrasse: null, parking: null, clim: null, charges_copro_an: null };
-  const e = Object.assign({}, base, corr, { prix: b.prix, surface: b.surface, pieces: b.pieces, type: b.type || base.type, dpe: b.dpe || base.dpe });
+  const e = Object.assign({}, base, ia, corr, { prix: b.prix, surface: b.surface, pieces: b.pieces, type: typeIA || b.type || base.type, dpe: b.dpe || base.dpe });
+  e._ia = Object.keys(ia).filter(k => !(k in corr)).concat(typeIA ? ['type'] : []);
   if (corr.niveau_travaux && !corr.etat) e.etat = corr.niveau_travaux === 'aucun' ? (base.etat === 'refait_neuf' ? 'refait_neuf' : 'bon') : 'a_rafraichir';
-  e.inconnus = (e.inconnus || []).filter(k => !(k in corr) && !(k === 'etat' && corr.niveau_travaux));
+  e.inconnus = (e.inconnus || []).filter(k => !(k in corr) && !(k in ia && ia[k] != null) && !(k === 'etat' && (corr.niveau_travaux || ia.niveau_travaux)));
   ['parking', 'terrasse', 'clim', 'vue_mer', 'distance_mer'].forEach(k => {
     if (e[k] == null && !e.inconnus.includes(k)) e.inconnus.push(k);
   });

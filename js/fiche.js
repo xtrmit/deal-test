@@ -132,6 +132,33 @@ function simbarHtml(r) {
   return `${Deal.etoilesSvg(r.etoiles)}<span class="${e >= 0 ? 'pos' : 'neg'}" style="font-weight:800">${Deal.eurS(e)}/mois</span><span class="note">après IS · rendement ${String(r.rendement_net_pct).replace('.', ',')} %</span>`;
 }
 
+// ---------- Analyse IA : synthèse, écarts avec la fois précédente, points à vérifier ----------
+const VAL = v => v === true ? 'oui' : v === false ? 'non' : v == null ? 'inconnu' : ({ '0-3': '0-3 min', '3-7': '3-7 min', '7-12': '7-12 min', '12+': '+12 min',
+  a_rafraichir: 'à rafraîchir', refait_neuf: 'refait à neuf', bon: 'bon', aucun: 'aucun', leger: 'légers', moyen: 'moyens', lourd: 'lourds', structurel: 'structurels',
+  studio: 'studio', t2: 'T2', t3: 'T3', t4: 'T4', incompatible: 'impossible', a_verifier: 'à vérifier', confirme: 'confirmée' }[v] || String(v));
+function iaHtml(b) {
+  const an = (Sync.data.analyses || new Map()).get(b.lbc_id), en = F && F.iaEnCours;
+  const desc = ((b.physique || {}).description || '').trim();
+  const texte = desc ? `<details class="desc"><summary>Texte complet de l'annonce</summary><p>${esc(desc).replace(/\n/g, '<br>')}</p></details>` : '';
+  if (!an) return `<div class="card field ia">
+      <span class="label">Analyse IA</span>
+      <p class="note">L'IA lit le texte et les photos pour confirmer la distance à la mer, l'état, les équipements et la capacité réelle, puis liste les risques et les questions à poser. Ses conclusions remplacent la lecture automatique dans le calcul (tes corrections restent prioritaires).</p>
+      <button class="small acc" data-ia ${en ? 'disabled' : ''}>${en ? 'Analyse en cours… (30 s environ)' : 'Analyser cette annonce'}</button>${texte}</div>`;
+  const r = an.resultat || {}, li = (t, l) => l && l.length ? `<b class="ia-t">${t}</b><ul>${l.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : '';
+  const delta = (r.delta || []).map(x => `<li><b>${esc(x.nom)}</b> : ${esc(x.champ === 'prix' ? Deal.eur(x.avant) : VAL(x.avant))} → ${esc(x.champ === 'prix' ? Deal.eur(x.apres) : VAL(x.apres))}</li>`).join('');
+  return `<div class="card field ia">
+    <div class="row"><span class="label grow">Analyse IA <span class="note">· ${Deal.dateFr(an.cree)} · confiance ${esc(r.confiance || '?')}</span></span>
+      <button class="small" data-ia="forcer" ${en ? 'disabled' : ''}>${en ? 'En cours…' : 'Réanalyser'}</button></div>
+    ${r.synthese ? `<p class="ia-syn">${esc(r.synthese)}</p>` : ''}
+    ${delta ? `<div class="ia-delta"><b class="ia-t">Ce qui change par rapport à la ${esc(r.reference_delta || 'lecture précédente')}</b><ul>${delta}</ul></div>` : `<p class="note">Rien ne change par rapport à la ${esc(r.reference_delta || 'lecture précédente')}.</p>`}
+    ${r.travaux_detail ? `<p class="note"><b>Travaux :</b> ${esc(r.travaux_detail)}</p>` : ''}
+    ${r.chambres != null || r.couchages != null ? `<p class="note"><b>Capacité :</b> ${r.chambres != null ? (r.chambres ? r.chambres + ' chambre' + (r.chambres > 1 ? 's' : '') : 'pas de chambre séparée') : ''}${r.couchages != null ? ' · ' + r.couchages + ' couchages' : ''}</p>` : ''}
+    <details ${F && F.iaOuvert ? 'open' : ''} data-ia-det><summary>Points forts, risques et questions pour la visite</summary>
+      ${li('Points forts', r.points_forts)}${li('Points faibles', r.points_faibles)}${li('Risques', r.risques)}${li('À demander / vérifier', r.questions_visite)}
+      ${r.preuves ? `<b class="ia-t">Sur quoi l'IA s'appuie</b><ul class="preuves">${Object.entries(r.preuves).filter(([, v]) => v).map(([k, v]) => `<li><b>${esc(({ distance_mer: 'mer', vue_mer: 'vue mer', vendu_meuble: 'meublé' }[k]) || k)}</b> : ${esc(v)}</li>`).join('')}</ul>` : ''}
+    </details>${texte}</div>`;
+}
+
 function ficheHtml(b) {
   const a = Sync.data.annotations.get(b.lbc_id) || {};
   const r = Deal.calculer(b, F.enCours);
@@ -150,7 +177,8 @@ function ficheHtml(b) {
       <input type="range" id="c_${c.k}" data-c="${c.k}" min="${c.min}" max="${c.max}" step="${c.step}" value="${v}"></div>`;
   }).join('');
   const seg = (k, items, cur) => `<div class="seg">${items.map(([v, l]) => `<button data-p="${k}" data-v="${v}" class="${String(cur == null ? '' : cur) === v ? 'sel' : ''}">${l}</button>`).join('')}</div>`;
-  const tg = (k, l) => `<div><span class="label">${l}${k in corr ? ' (corrigé)' : ''}</span>${seg(k, [['', '?'], ['true', 'Oui'], ['false', 'Non']], e[k])}</div>`;
+  const src = k => k in corr ? ' <span class="note">(corrigé)</span>' : (e._ia || []).includes(k) ? ' <span class="note ia-src">(IA)</span>' : '';
+  const tg = (k, l) => `<div><span class="label">${l}${src(k)}</span>${seg(k, [['', '?'], ['true', 'Oui'], ['false', 'Non']], e[k])}</div>`;
   const inconnus = (e.inconnus || []).filter(k => !(k in corr) && !(k === 'etat' && corr.niveau_travaux));
   return `
     <div class="fiche"><div class="col-g">
@@ -166,6 +194,7 @@ function ficheHtml(b) {
     <p class="note">${esc(b.titre)}</p>
     <a class="lien" href="${esc(b.url)}" target="_blank" rel="noopener noreferrer">Voir l'annonce sur LeBonCoin ↗</a>
     <div id="verdict">${verdictHtml(r, b)}</div>
+    <div id="ia">${iaHtml(b)}</div>
     <div class="card field"><span class="label">Vendeur qui fatigue</span>
       <span class="${fat.niveau === 'forte' ? 'pos' : ''}" style="font-weight:800">${esc(fat.texte)}</span>
       ${orig ? `<span class="note">Republication de l'annonce ${esc(orig.lbc_id)} (ancienneté cumulée).</span>` : fat.republie ? '<span class="note">Republication d\'une annonce retirée (ancienneté cumulée).</span>' : ''}
@@ -176,9 +205,9 @@ function ficheHtml(b) {
     <h3 class="h3">Caractéristiques</h3>
     <div class="card field">
       ${inconnus.length ? `<p class="note">Inconnu dans l'annonce : ${esc(inconnus.map(k => ({ distance_mer: 'distance à la mer', etat: 'état / travaux', dpe: 'DPE' }[k] || k)).join(', '))}. Corrige ci-dessous si tu sais.</p>` : ''}
-      <span class="label">Distance à la mer à pied${'distance_mer' in corr ? ' <span class="note">(corrigée)</span>' : e.distance_mer ? '' : ' <span class="note">(inconnue, effet neutre)</span>'}</span>
+      <span class="label">Distance à la mer à pied${'distance_mer' in corr ? ' <span class="note">(corrigée)</span>' : (e._ia || []).includes('distance_mer') ? ' <span class="note ia-src">(IA)</span>' : e.distance_mer ? '' : ' <span class="note">(inconnue, effet neutre)</span>'}</span>
       ${seg('distance_mer', DIST, e.distance_mer)}
-      <span class="label">Travaux à prévoir${'niveau_travaux' in corr ? ' <span class="note">(corrigé)</span>' : ''}</span>
+      <span class="label">Travaux à prévoir${src('niveau_travaux')}</span>
       ${seg('niveau_travaux', TRAV, e.niveau_travaux)}
       <div class="carac">${tg('vue_mer', 'Vue mer')}${tg('terrasse', 'Terrasse / jardin')}${tg('parking', 'Parking')}${tg('clim', 'Climatisation')}</div>
       <p class="note">? = inconnu, sans décote automatique. État inconnu : provision de travaux légers dans le budget.</p>
@@ -252,6 +281,16 @@ function clicFiche(e) {
     const garde = Object.assign(cur, F.enCours); F.enCours = {};
     Sync.annoter(b.lbc_id, { curseurs: garde }); Deal.toast('Réglages enregistrés pour ce bien'); setTimeout(rerendre, 0); return;
   }
+  const bi = t.closest('[data-ia]');
+  if (bi && !F.iaEnCours) {
+    F.iaEnCours = true; const id = b.lbc_id; $('ia').innerHTML = iaHtml(b);
+    Sync.analyser(id, bi.dataset.ia === 'forcer').then(j => {
+      Deal.toast(j.cache ? 'Annonce inchangée : analyse précédente conservée' : 'Analyse terminée : calcul mis à jour');
+    }).catch(err => Deal.toast(err.message)).finally(() => { if (F && F.id === id) { F.iaEnCours = false; rerendre(); } });
+    return;
+  }
+  const dt = t.closest('[data-ia-det] > summary');
+  if (dt) F.iaOuvert = !dt.parentElement.open;
   const ai = t.closest('[data-aide]');
   if (ai) { const k = ai.dataset.aide; F.aides.has(k) ? F.aides.delete(k) : F.aides.add(k); majSimulateur(b); return; }
   const ph = t.closest('[data-photo]');

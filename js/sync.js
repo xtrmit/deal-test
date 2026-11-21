@@ -17,17 +17,22 @@
   };
 
   /* ---------- IndexedDB ---------- */
-  let dbp = null;
+  let dbp = null, resync = false;
   function db() {
     if (!dbp) dbp = new Promise((res, rej) => {
-      const r = indexedDB.open('deal-' + ENV, 1);
-      r.onupgradeneeded = () => {
+      const r = indexedDB.open('deal-' + ENV, 2);
+      r.onupgradeneeded = (ev) => {
         const d = r.result;
-        d.createObjectStore('biens', { keyPath: 'lbc_id' });
-        d.createObjectStore('prix', { keyPath: 'k' });
-        d.createObjectStore('annotations', { keyPath: 'lbc_id' });
-        d.createObjectStore('reglages', { keyPath: 'k' });
-        d.createObjectStore('file', { keyPath: 'n', autoIncrement: true });
+        if (ev.oldVersion < 1) {
+          d.createObjectStore('biens', { keyPath: 'lbc_id' });
+          d.createObjectStore('prix', { keyPath: 'k' });
+          d.createObjectStore('annotations', { keyPath: 'lbc_id' });
+          d.createObjectStore('reglages', { keyPath: 'k' });
+          d.createObjectStore('file', { keyPath: 'n', autoIncrement: true });
+        }
+        // v2 : analyses IA (dernière analyse par bien). Base existante : resynchronisation complète.
+        if (!d.objectStoreNames.contains('analyses')) d.createObjectStore('analyses', { keyPath: 'lbc_id' });
+        if (ev.oldVersion >= 1 && ev.oldVersion < 2) resync = true;
       };
       r.onsuccess = () => res(r.result);
       r.onerror = () => rej(r.error);
@@ -46,9 +51,11 @@
   const getAll = (store) => tx([store], 'readonly', t => req2p(t.objectStore(store).getAll())).then(p => p);
 
   /* ---------- Données en mémoire ---------- */
-  const M = { biens: new Map(), prix: new Map(), annotations: new Map(), reglages: new Map(), pret: false };
+  const M = { biens: new Map(), prix: new Map(), annotations: new Map(), reglages: new Map(), analyses: new Map(), pret: false };
   async function charger() {
-    const [b, p, a, r] = await Promise.all(['biens', 'prix', 'annotations', 'reglages'].map(getAll));
+    const [b, p, a, r, ia] = await Promise.all(['biens', 'prix', 'annotations', 'reglages', 'analyses'].map(getAll));
+    if (resync) { S.since = 0; ls.set('since', 0); resync = false; }
+    M.analyses = new Map((await ia).map(x => [x.lbc_id, x]));
     M.biens = new Map((await b).map(x => [x.lbc_id, x]));
     M.prix = new Map();
     (await p).forEach(x => { if (!M.prix.has(x.lbc_id)) M.prix.set(x.lbc_id, []); M.prix.get(x.lbc_id).push(x); });
@@ -107,8 +114,10 @@
       if (!res.json || !res.json.ok) throw new Error('Réponse inattendue (' + res.status + ')');
       const j = res.json;
       const enAttente = new Set((await getAll('file')).filter(o => o.op.action === 'annoter').map(o => o.op.lbc_id));
-      await tx(['biens', 'prix', 'annotations', 'reglages'], 'readwrite', t => {
+      await tx(['biens', 'prix', 'annotations', 'reglages', 'analyses'], 'readwrite', t => {
         const sb = t.objectStore('biens'), sp = t.objectStore('prix'), sa = t.objectStore('annotations'), sr = t.objectStore('reglages');
+        const si = t.objectStore('analyses');
+        (j.analyses || []).forEach(x => { const o = M.analyses.get(x.lbc_id); if (!o || x.cree >= o.cree) { si.put(x); M.analyses.set(x.lbc_id, x); } });
         (j.biens || []).forEach(b => {
           if (b.supprime) { sb.delete(b.lbc_id); M.biens.delete(b.lbc_id); }
           else { sb.put(b); M.biens.set(b.lbc_id, b); }
@@ -184,6 +193,18 @@
     return res.json;
   }
 
+  /* ---------- Analyse IA (en ligne uniquement : 20 à 60 s) ---------- */
+  async function analyser(lbc_id, forcer) {
+    const j = await appel('analyser', { lbc_id, forcer: !!forcer });
+    const x = j.analyse;
+    if (x && x.lbc_id) {
+      M.analyses.set(x.lbc_id, x);
+      await tx(['analyses'], 'readwrite', t => { t.objectStore('analyses').put(x); });
+      emit(['donnees']);
+    }
+    return j;
+  }
+
   /* ---------- Réglages de calcul d'une commune ---------- */
   function reglagesPour(commune) {
     const g = (cle, c) => { const r = M.reglages.get(cle + '|' + c); return r ? r.valeur : null; };
@@ -212,8 +233,8 @@
   async function quitter() {
     S.auth = null; ['auth', 'since', 'lastOk', 'visitePrec', 'communes', 'runs'].forEach(ls.del);
     S.since = 0; S.lastOk = 0; S.revoked = false; S.ouvert = false;
-    await tx(['biens', 'prix', 'annotations', 'reglages', 'file'], 'readwrite', t => ['biens', 'prix', 'annotations', 'reglages', 'file'].forEach(s => t.objectStore(s).clear()));
-    M.biens.clear(); M.prix.clear(); M.annotations.clear(); M.reglages.clear();
+    await tx(['biens', 'prix', 'annotations', 'reglages', 'analyses', 'file'], 'readwrite', t => ['biens', 'prix', 'annotations', 'reglages', 'analyses', 'file'].forEach(s => t.objectStore(s).clear()));
+    M.biens.clear(); M.prix.clear(); M.annotations.clear(); M.reglages.clear(); M.analyses.clear();
     S.pending = 0; emit(['auth', 'donnees']);
   }
 
@@ -226,6 +247,6 @@
   window.DealSync = {
     state: S, data: M, BASE, ENV, store: ls,
     on(f) { listeners.push(f); },
-    charger, sync, annoter, reglage, appel, login, appairer, quitter, reglagesPour
+    charger, sync, annoter, reglage, appel, login, appairer, quitter, reglagesPour, analyser
   };
 })();

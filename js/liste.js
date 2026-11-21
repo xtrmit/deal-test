@@ -34,6 +34,7 @@ function carteHtml(x) {
   if (fat.niveau === 'forte') bd.push('<span class="bdg warn">Vendeur fatigué</span>');
   if (fat.republie) bd.push('<span class="bdg">Republiée</span>');
   if (a.curseurs && Object.keys(a.curseurs).length) bd.push('<span class="bdg">Ajusté</span>');
+  if (Sync.data.analyses && Sync.data.analyses.has(b.lbc_id)) bd.push('<span class="bdg ia">IA</span>');
   const ppm = b.surface ? Math.round(b.prix / b.surface) : null;
   const ref = Deal.prixM2Ref(b);   // info « prix bas » : n'entre pas dans les étoiles (le prix y est déjà via le rendement)
   if (ref && ref.ecart <= -10) bd.unshift(`<span class="bdg good">Prix/m² ${ref.ecart} %</span>`);
