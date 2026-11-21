@@ -95,19 +95,73 @@ function etoilesSvg(n, big) {
 /* ================== Feuilles ================== */
 const sheet = $('sheet'), scrim = $('scrim');
 let onSheetClose = null, reloadPending = false;
+// Touche « retour » Android : chaque feuille ouverte ajoute une entrée d'historique ; « retour » ferme la feuille
+// au lieu de quitter l'app. Fermer par la croix consomme cette entrée (history.back) pour rester cohérent.
 function openSheet(title, html, onClick, full) {
   $('sheetTitle').textContent = title;
   $('sheetBody').innerHTML = html;
   $('sheetBody').onclick = onClick || null;
   sheet.classList.toggle('full', !!full);
+  if (sheet.hidden && !retourEnCours && !(history.state && history.state.feuille)) history.pushState({ feuille: 1 }, '', location.href);
   sheet.hidden = false; scrim.hidden = false; sheet.scrollTop = 0;
 }
-function closeSheet() {
+function fermerFeuille() {
+  if (sheet.hidden) return;
   sheet.hidden = true; scrim.hidden = true; $('sheetBody').onclick = null; $('sheetBody').oninput = null;
   if (onSheetClose) { const f = onSheetClose; onSheetClose = null; f(); }
-  if (location.hash.startsWith('#bien=')) history.replaceState(null, '', location.pathname);
+  if (location.hash.startsWith('#bien=')) history.replaceState(history.state, '', location.pathname);
   if (reloadPending) location.reload();
 }
+let retourEnCours = false;
+function closeSheet() {
+  const entree = history.state && history.state.feuille;
+  fermerFeuille();
+  if (entree) { retourEnCours = true; history.back(); }   // retire l'entrée ajoutée à l'ouverture
+}
+addEventListener('popstate', () => {
+  if (retourEnCours) {   // fin du history.back() de closeSheet ; une feuille rouverte entre-temps reprend son entrée
+    retourEnCours = false;
+    if (!sheet.hidden) history.pushState({ feuille: 1 }, '', location.href);
+    return;
+  }
+  if (!sheet.hidden) fermerFeuille();   // touche retour
+});
+
+/* ================== Curseurs protégés du défilement ==================
+   Le curseur natif réagit au moindre contact : en faisant défiler la fiche, on changeait les valeurs sans le voir.
+   Ici le curseur ne bouge que sur un glissement HORIZONTAL franc (relatif : pas de saut à l'endroit touché) ;
+   un geste vertical laisse défiler la page. Clavier (PC) : flèches après Tab, inchangé. */
+(function curseursSurs() {
+  let g = null;
+  document.addEventListener('pointerdown', e => {
+    const w = e.target.closest('.slider'); if (!w || e.button > 0) return;
+    const inp = w.querySelector('input[type=range]'); if (!inp) return;
+    g = { w, inp, x: e.clientX, y: e.clientY, v: +inp.value, id: e.pointerId, mode: null, larg: inp.getBoundingClientRect().width || 1 };
+  });
+  document.addEventListener('pointermove', e => {
+    if (!g || e.pointerId !== g.id) return;
+    const dx = e.clientX - g.x, dy = e.clientY - g.y;
+    if (!g.mode) {
+      if (Math.abs(dy) > 8 && Math.abs(dy) >= Math.abs(dx)) { g = null; return; }      // défilement : on lâche
+      if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        g.mode = 'glisse'; document.body.dataset.glisse = '1'; g.w.classList.add('actif');
+        try { g.w.setPointerCapture(e.pointerId); } catch (x) {}
+      } else return;
+    }
+    e.preventDefault();
+    const min = +g.inp.min, max = +g.inp.max, st = +g.inp.step || 1;
+    let v = g.v + (dx / g.larg) * (max - min);
+    v = Math.min(max, Math.max(min, Math.round((v - min) / st) * st + min));
+    v = +v.toFixed(4);
+    if (v !== +g.inp.value) { g.inp.value = v; g.inp.dispatchEvent(new Event('input', { bubbles: true })); }
+  }, { passive: false });
+  const fin = e => {
+    if (!g || (e && e.pointerId !== g.id)) return;
+    if (g.mode) { g.w.classList.remove('actif'); delete document.body.dataset.glisse; g.inp.dispatchEvent(new Event('change', { bubbles: true })); }
+    g = null;
+  };
+  document.addEventListener('pointerup', fin); document.addEventListener('pointercancel', fin);
+})();
 $('sheetClose').addEventListener('click', closeSheet);
 scrim.addEventListener('click', closeSheet);
 addEventListener('keydown', e => { if (e.key === 'Escape' && !sheet.hidden) closeSheet(); });

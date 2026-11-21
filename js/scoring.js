@@ -4,7 +4,7 @@
  */
 (function (root) {
   'use strict';
-  var VERSION = '1.1.1';
+  var VERSION = '1.2.0';
 
   /* ---------- Réglages par défaut (= Google Sheet migrée) ---------- */
   var DEFAUTS = {
@@ -163,7 +163,10 @@
   }
 
   /* bien = sortie de extraire() ; reglages = DEFAUTS fusionnés ;
-   * curseurs = { apport_pct, taux_pct, duree_ans, travaux_eur, adr, occ_pct, charges_mois } (surcharges facultatives) */
+   * curseurs = { nego_pct, apport_pct, taux_pct, duree_ans, travaux_eur, meubles_eur, adr, occ_pct, charges_mois,
+   *              frais_gestion_pct } (surcharges facultatives)
+   * nego_pct : baisse de prix négociée (0 par défaut) ; frais_gestion_pct : conciergerie + plateforme + ménage,
+   *            en % des loyers bruts (défaut = 100 − net du benchmark, soit 38 %). */
   function calculer(bien, reglages, curseurs) {
     var R = reglages || DEFAUTS;
     var c = curseurs || {};
@@ -183,7 +186,8 @@
     var adr = c.adr != null ? +c.adr : Math.round(B.adr * mAdr);
     var occ = c.occ_pct != null ? +c.occ_pct : Math.min(B.occ * mOcc, F.occ_max_pct);
     var brut = adr * 365 * occ / 100 * (1 - F.vacance_imprevue_pct / 100);
-    var revenusNets = brut * B.net / 100;
+    var gestionPct = c.frais_gestion_pct != null ? +c.frais_gestion_pct : 100 - B.net;
+    var revenusNets = brut * (1 - gestionPct / 100);
     var coproAn = bien.charges_copro_an;
     var coproFiable = coproAn != null && coproAn >= F.copro_min_fiable_an;
     var copro = coproFiable ? coproAn / 12 : B.copro;
@@ -195,10 +199,12 @@
 
     // --- projet & crédit ---
     var travaux = c.travaux_eur != null ? +c.travaux_eur : Math.round((R.travaux_m2[niv] || 0) * (bien.surface || 0) / 1000) * 1000;
-    var notaire = bien.prix * F.notaire_pct / 100;
+    var negoPct = c.nego_pct != null ? Math.max(0, Math.min(50, +c.nego_pct)) : 0;
+    var prixAchat = negoPct ? Math.round(bien.prix * (1 - negoPct / 100) / 100) * 100 : bien.prix;
+    var notaire = prixAchat * F.notaire_pct / 100;
     var meubles = c.meubles_eur != null ? +c.meubles_eur : 0;   // budget meubles à part (0 par défaut)
-    var coutTotal = bien.prix + notaire + travaux + meubles;
-    var apport = bien.prix * F.apport_pct / 100;
+    var coutTotal = prixAchat + notaire + travaux + meubles;
+    var apport = prixAchat * F.apport_pct / 100;
     var emprunt = Math.max(coutTotal - apport, 0);
     var mens = mensualite(emprunt, F.taux_pct, F.duree_ans);
     var interets1 = interetsAnnee1(emprunt, F.taux_pct, mens);
@@ -212,7 +218,7 @@
       var b = Math.min(base, F.is_seuil_eur);
       return b * F.is_bas_pct / 100 + Math.max(base - F.is_seuil_eur, 0) * F.is_haut_pct / 100;
     };
-    var amortBienAn = (bien.prix + notaire) * F.part_bati_pct / 100 / F.amort_bien_ans;
+    var amortBienAn = (prixAchat + notaire) * F.part_bati_pct / 100 / F.amort_bien_ans;
     var r = F.taux_pct / 100 / 12, restant = emprunt;
     var reportAvec = 0, reportSans = 0, cumulAvec = 0, cumulSans = 0, anneesSansIS = 0;
     var an1 = null;
@@ -234,7 +240,7 @@
     // --- étoiles ---
     var etoiles, statut = 'ok';
     if (bien.exclusions && bien.exclusions.length) { statut = 'exclu'; etoiles = 0; raisons.push('Exclu : ' + bien.exclusions.join(', ')); }
-    else if (netAvantCredit < 0) { statut = 'rejet'; etoiles = 0; raisons.push('Ne couvre pas ses charges : aucun apport ni négociation ne le sauve'); }
+    else if (netAvantCredit < 0) { statut = 'rejet'; etoiles = 0; raisons.push('Même payé comptant, il perd ' + Math.round(-netAvantCredit) + ' €/an : loyers nets inférieurs aux charges fixes. Apport et négociation n\'y changent rien.'); }
     else {
       etoiles = etoilesDepuis(effortHorsCapital, R.paliers);
       if (bien.dpe === 'F' || bien.dpe === 'G') { etoiles = Math.min(etoiles, 1); raisons.push('DPE ' + bien.dpe + ' : meublé de tourisme interdit (loi Le Meur) sans rénovation'); }
@@ -249,8 +255,9 @@
       version: VERSION, statut: statut, etoiles: etoiles, raisons: raisons,
       hypotheses: { type: bien.type, distance_mer: dist, niveau_travaux: niv, adr: adr, occ_pct: Math.round(occ * 10) / 10,
                     charges_mois: Math.round(charges), charges_hors_copro_mois: chargesHorsCopro, copro_mois: Math.round(coproRetenue), copro_source: c.copro_mois != null ? 'curseur' : coproFiable ? 'annonce' : 'defaut', travaux_eur: travaux, meubles_eur: meubles,
-                    apport_pct: F.apport_pct, taux_pct: F.taux_pct, duree_ans: F.duree_ans },
-      revenus_bruts_an: r0(brut), revenus_nets_an: r0(revenusNets), net_avant_credit_an: r0(netAvantCredit),
+                    apport_pct: F.apport_pct, taux_pct: F.taux_pct, duree_ans: F.duree_ans,
+                    nego_pct: negoPct, prix_achat: prixAchat, frais_gestion_pct: gestionPct },
+      revenus_bruts_an: r0(brut), frais_gestion_an: r0(brut - revenusNets), revenus_nets_an: r0(revenusNets), net_avant_credit_an: r0(netAvantCredit),
       cout_total: r0(coutTotal), apport: r0(apport), emprunt: r0(emprunt),
       mensualite: r0(mens), interets_an1: r0(interets1),
       effort_treso_mois: r0(effortTreso), effort_hors_capital_mois: r0(effortHorsCapital),

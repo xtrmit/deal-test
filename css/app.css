@@ -140,11 +140,19 @@ h2{margin:0;font-family:'Fredoka',sans-serif;font-weight:600;font-size:1.3em}
 .metrics dd{margin:0;text-align:right;font-weight:800;font-variant-numeric:tabular-nums}
 .metrics .key{font-size:1.05em}
 .metrics hr{grid-column:1/-1;border:0;border-top:1px solid var(--line);margin:2px 0;width:100%}
-.slider{display:flex;flex-direction:column;gap:2px}
-.slider .row{justify-content:space-between}
-.slider output{font-weight:800;font-variant-numeric:tabular-nums}
+.slider{display:flex;flex-direction:column;gap:0;touch-action:pan-y;user-select:none;-webkit-user-select:none;border-radius:10px;padding:2px 4px;margin:0 -4px}
+.slider.actif{background:var(--line)}
+.slider .row{justify-content:space-between;gap:8px}
+.slider .label{font-size:.85em}
+.slider output{font-weight:800;font-variant-numeric:tabular-nums;font-size:.9em;text-align:right}
 .slider output.mod{color:var(--accent)}
-.slider input[type=range]{width:100%;accent-color:var(--accent);height:30px}
+/* le curseur natif ne reçoit plus le toucher : c'est app.js qui le pilote (glissement horizontal seulement) */
+.slider input[type=range]{width:100%;accent-color:var(--accent);height:24px;margin:0;pointer-events:none}
+.sliders{gap:6px}
+.simu{display:flex;flex-direction:column;gap:10px}
+.simbar{position:sticky;top:-16px;z-index:2;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--bg);padding:10px 2px;border-bottom:1px solid var(--line)}
+.sheet.full .simbar{top:calc(-12px - env(safe-area-inset-top))}
+.simbar .big{font-family:'Fredoka',sans-serif;font-weight:600;font-size:1.1em}
 .carac{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 14px}
 .hist{display:flex;flex-direction:column;gap:4px;font-size:.85em}
 .hist .row{justify-content:space-between}
