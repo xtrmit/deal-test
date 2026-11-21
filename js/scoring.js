@@ -1,275 +1,325 @@
-/* Deal App — scoring.js
- * UNE seule formule, exécutée par la PWA (curseurs) ET par n8n (ingestion).
- * Aucun secret ici. Toute modification => incrémenter VERSION.
+/* Deal — moteur pur partagé PWA / n8n, sans dépendance ni réseau.
+ * API et anciens champs conservés. Budgets indicatifs, année stabilisée.
+ * v2 : trois états, rendement hors financement, coût complet, cash-flow après IS.
  */
 (function (root) {
   'use strict';
-  var VERSION = '1.2.0';
-
-  /* ---------- Réglages par défaut (= Google Sheet migrée) ---------- */
+  var VERSION = '2.1.0', RANG = ['studio', 't2', 't3', 't4'];
+  var EQUIPEMENTS = ['parking', 'terrasse', 'clim', 'vue_mer', 'ascenseur', 'vendu_meuble'];
   var DEFAUTS = {
     benchmarks: {
-      // charges = charges fixes hors copro (€/mois) ; copro = copro par défaut (€/mois) si l'annonce ne la donne pas
-      studio: { smin: 0,  smax: 29,  adr: 78,  occ: 50, net: 62, charges: 290, copro: 90 },
-      t2:     { smin: 30, smax: 44,  adr: 115, occ: 54, net: 62, charges: 343, copro: 110 },
-      t3:     { smin: 45, smax: 66,  adr: 132, occ: 45, net: 62, charges: 460, copro: 140 },
-      t4:     { smin: 67, smax: 999, adr: 165, occ: 40, net: 62, charges: 550, copro: 170 }
+      studio: { smin: 0, smax: 29, adr: 85, occ: 50, net: 67.6, charges: 310, copro: 90, meubles: 5000 },
+      t2: { smin: 30, smax: 44, adr: 100, occ: 52, net: 67.6, charges: 357.5, copro: 110, meubles: 7000 },
+      t3: { smin: 45, smax: 66, adr: 130, occ: 48, net: 67.6, charges: 4880 / 12, copro: 140, meubles: 10000 },
+      t4: { smin: 67, smax: 999, adr: 165, occ: 45, net: 67.6, charges: 460, copro: 170, meubles: 13000 }
     },
     ajustements: {
-      distance_mer: { '0-3': [1, 1], '3-7': [0.93, 0.96], '7-12': [0.86, 0.91], '12+': [0.78, 0.84] },
-      parking:      { oui: [1, 1], non: [0.95, 0.98] },
-      vue_mer:      { non: [1, 1], oui: [1.15, 1.04] },
-      terrasse:     { oui: [1, 1], non: [0.93, 0.98] },
-      clim:         { oui: [1, 1], non: [0.96, 0.95] },
-      etat:         { bon: [1, 1], refait_neuf: [1.08, 1.03], a_rafraichir: [0.93, 0.96] }
+      distance_mer: { '0-3': [1.05, 1], '3-7': [1, 1], '7-12': [0.95, 1], '12+': [0.85, 1] },
+      parking: { oui: [1, 1], non: [0.95, 1] }, terrasse: { oui: [1, 1], non: [0.95, 1] },
+      clim: { oui: [1, 1], non: [0.90, 1] }, vue_mer: { non: [1, 1], oui: [1.10, 1] },
+      etat: { bon: [1, 1], refait_neuf: [1.05, 1], a_rafraichir: [0.90, 1] }
     },
-    travaux_m2: { aucun: 0, leger: 300, moyen: 600, lourd: 1100, structurel: 1800 },
+    travaux_m2: { aucun: 0, leger: 400, moyen: 800, lourd: 1300, structurel: 2000 },
     fin: {
       apport_pct: 20, taux_pct: 4, duree_ans: 15, notaire_pct: 8,
       amort_bien_ans: 30, part_bati_pct: 70, amort_travaux_ans: 10, amort_meubles_ans: 7,
-      is_bas_pct: 15, is_haut_pct: 25, is_seuil_eur: 42500, horizon_is_ans: 10, copro_min_fiable_an: 300,
-      vacance_imprevue_pct: 5, occ_max_pct: 85
+      is_bas_pct: 15, is_haut_pct: 25, is_seuil_eur: 42500, is_taux_reduit_eligible: true,
+      horizon_is_ans: 10, copro_min_fiable_an: 300, vacance_imprevue_pct: 0, occ_max_pct: 100,
+      jours_ouverts_an: 350, aleas_travaux_pct: 15, entretien_courant_pct: 2, reserve_renouvellement_pct: 3,
+      plateforme_pct: 15.5, conciergerie_pct: 20, assiette_conciergerie: 'apres_plateforme',
+      frais_dossier_eur: 1000, garantie_pct_emprunt: 1.5, assurance_emprunteur_pct: 0.30,
+      frais_creation_eur: 0, frais_lancement_eur: 0, travaux_copro_eur: 0,
+      crl_pct: 2.5, crl_applicable: null, duree_sejour_moyenne: 5,
+      menage_cout_sejour: 0, menage_facture_sejour: null, reserve_tresorerie_mois: 6,
+      // IS que la société paie déjà sur ses autres activités (€/an). 0 = le bien est seul dans sa société.
+      // Sinon, le déficit fiscal du bien s'impute sur ce bénéfice la même année et réduit l'IS déjà dû.
+      is_autre_eur: 0
     },
-    // Effort réel hors capital (€/mois) -> étoiles (interpolation linéaire)
-    paliers: [[-700, 1], [-450, 2], [-250, 3], [-100, 4], [50, 5]],
-    defauts_commune: { distance_mer: '7-12' }
+    // Rendement en %, avant financement et IS, sur investissement hors financement.
+    paliers: [[0, 1], [2, 2], [4, 3], [6, 4], [8, 5]], defauts_commune: { distance_mer: null }
   };
-
-  var RANG = ['studio', 't2', 't3', 't4'];
-
-  /* ---------- Extraction (serveur, à l'ingestion) ---------- */
-  var EXCLUSIONS = [
-    [/viager/i, 'viager'],
-    [/vente\s+[aà]\s+terme/i, 'vente à terme'],
-    [/nue[- ]propri[ée]t[ée]|usufruit/i, 'nue-propriété / usufruit'],
-    [/sous\s+(offre|compromis)/i, 'sous offre / compromis'],
-    [/(bien|appartement|logement)\s+(vendu\s+)?(lou[ée]|occup[ée])|vendu\s+lou[ée]|locataire\s+en\s+place|bail\s+en\s+cours|vendeur\s+occupant|occup[ée]\s+par/i, 'bien occupé'],
-    [/local\s+commercial|fonds\s+de\s+commerce|murs\s+commerciaux|\bbureaux?\b\s+(à|a)\s+vendre/i, 'non résidentiel'],
-    [/r[ée]sidence\s+(services|senior|g[ée]r[ée]e|de\s+tourisme)|bail\s+commercial/i, 'résidence gérée']
-  ];
-
-  function norm(s) { return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''); }
-  function num(s) { var n = parseFloat(String(s == null ? '' : s).replace(/[^\d.,-]/g, '').replace(',', '.')); return isFinite(n) ? n : null; }
-
-  function typeDepuis(surface, pieces) {
-    var bySurf = surface == null ? null : (surface < 30 ? 0 : surface < 45 ? 1 : surface < 67 ? 2 : 3);
-    var byRooms = pieces == null ? null : Math.min(Math.max(pieces, 1), 4) - 1;
-    var r = bySurf == null ? byRooms : byRooms == null ? bySurf : Math.min(bySurf, byRooms);
-    return RANG[r == null ? 1 : r];
+  function present(v) { return v !== undefined && v !== null && v !== ''; }
+  function norm(s) { return String(s == null ? '' : s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); }
+  function num(v) {
+    if (typeof v === 'number') return isFinite(v) ? v : null;
+    if (!present(v) || typeof v === 'boolean' || typeof v === 'object') return null;
+    var s = String(v).trim().replace(/[\s\u00a0\u202f€%]/g, '').replace(/(?:eur|euros?|m²|m2|\/an|\/mois)$/i, '');
+    if (s.indexOf(',') >= 0 && s.indexOf('.') >= 0) s = s.lastIndexOf(',') > s.lastIndexOf('.') ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
+    else s = s.replace(',', '.');
+    return /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(s) && isFinite(+s) ? +s : null;
   }
-
-  // raw = item Apify memo23 ; renvoie les caractéristiques physiques (cachables)
-  function extraire(raw) {
-    var a = raw.attributes || {};
-    var texte = (raw.title || '') + ' \n ' + (raw.description || '');
-    var t = norm(texte);
-    var surface = num(a.square);
-    var pieces = num(a.rooms);
-    var exclusions = [];
-    EXCLUSIONS.forEach(function (e) { if (e[0].test(texte)) exclusions.push(e[1]); });
-    var rtype = norm(a.real_estate_type);
-    if (rtype && rtype.indexOf('appartement') < 0 && rtype.indexOf('maison') < 0) exclusions.push('type: ' + a.real_estate_type);
-
-    // distance mer : texte uniquement (le GPS LeBonCoin est souvent celui de la commune)
-    var dist = null, m;
-    if (/pieds dans l.eau|front de mer|bord de mer|face (a la )?mer/.test(t)) dist = '0-3';
-    else if ((m = t.match(/(\d{1,4})\s*(m|metres?)\s+(de la |des |de |du )?(mer|plages?|port|bord de mer)/))) {
-      var d = +m[1]; dist = d <= 250 ? '0-3' : d <= 550 ? '3-7' : d <= 1000 ? '7-12' : '12+';
-    } else if ((m = t.match(/(\d{1,2})\s*(min|minutes?|mn)\s*(a pied\s*)?(de la |des |de |du )?(mer|plages?|port|bord de mer)/))) {
-      var mn = +m[1]; dist = mn <= 3 ? '0-3' : mn <= 7 ? '3-7' : mn <= 12 ? '7-12' : '12+';
-    } else if (/proche (de la )?(mer|plages?)|a deux pas (de la )?(mer|plage)|proximite (immediate )?(de la )?(mer|plages?)/.test(t)) dist = '3-7';
-
-    var vueMer = /vue (sur (la )?)?mer|vue mer|vue degagee sur la mer|vue panoramique sur la mer/.test(t) && !/sans vue mer|pas de vue mer/.test(t);
-    var ext = norm(a.outside_access);
-    var terrasse = /terrasse|jardin/.test(ext) || /terrasse|jardin/.test(t);
-    var parking = (num(a.nb_parkings) || 0) > 0 || /parking|garage/.test(norm(a.specificities)) || /parking|garage|place de stationnement/.test(t);
-    var clim = /climatis|\bclim\b|reversible/.test(t);
-
-    var gc = norm(a.global_condition);
-    var etat = null, niveau = null;
-    if (/neuf|refait/.test(gc)) { etat = 'refait_neuf'; niveau = 'aucun'; }
-    else if (/bon/.test(gc)) { etat = 'bon'; niveau = 'aucun'; }
-    else if (/rafraichir/.test(gc)) { etat = 'a_rafraichir'; niveau = 'leger'; }
-    else if (/travaux|renover/.test(gc)) { etat = 'a_rafraichir'; niveau = 'moyen'; }
-    if (/renover entierement|renover totalement|a renover entierement|entierement a renover|gros travaux|a rehabiliter|plateau a amenager/.test(t)) { etat = 'a_rafraichir'; niveau = 'lourd'; }
-    else if (!niveau && /renove|refait a neuf|refait neuf|entierement refait|neuf/.test(t)) { etat = 'refait_neuf'; niveau = 'aucun'; }
-    else if (!niveau && /a rafraichir|travaux a prevoir|a renover|rafraichissement/.test(t)) { etat = 'a_rafraichir'; niveau = /a renover/.test(t) ? 'moyen' : 'leger'; }
-
-    var inconnus = [];
-    if (!dist) inconnus.push('distance_mer');
-    if (!niveau) inconnus.push('etat');
-    if (!a.energy_rate) inconnus.push('dpe');
-
-    var imgs = (raw.images && raw.images.urls) || [];
-    return {
-      id: String(raw.adId || raw.listing_id || ''),
-      url: raw.url || '',
-      titre: raw.title || '',
-      prix: num(raw.price),
-      ancien_prix: num(a.old_price),
-      surface: surface,
-      pieces: pieces,
-      type: typeDepuis(surface, pieces),
-      dpe: (a.energy_rate || '').toUpperCase() || null,
-      charges_copro_an: num(a.annual_charges),
-      etage: a.floor_display || null,
-      ascenseur: a.elevator === 'Oui',
-      distance_mer: dist,
-      vue_mer: vueMer,
-      terrasse: terrasse,
-      parking: parking,
-      clim: clim,
-      etat: etat,
-      niveau_travaux: niveau,
-      vendu_meuble: /vendu meuble|vente meublee|cede meuble|meuble et equipe|entierement meuble/.test(t),
-      exclusions: exclusions,
-      inconnus: inconnus,
-      vendeur: (raw.seller && raw.seller.type) || null,
-      publie_le: raw.firstPublishedAt || null,
-      lat: raw.location ? raw.location.lat : null,
-      lng: raw.location ? raw.location.lng : null,
-      photos: imgs
-    };
+  function tri(v) {
+    if (v === true || v === false) return v;
+    if (/^(oui|true|1)$/i.test(String(v))) return true;
+    if (/^(non|false|0)$/i.test(String(v))) return false;
+    return null;
   }
-
-  /* ---------- Calcul ---------- */
+  function clone(v) { return v == null ? v : JSON.parse(JSON.stringify(v)); }
   function fusion(base, sur) {
-    var o = {}; var k;
-    for (k in base) o[k] = base[k];
-    for (k in (sur || {})) if (sur[k] !== undefined && sur[k] !== null && sur[k] !== '') o[k] = sur[k];
-    return o;
-  }
-
-  function mensualite(capital, tauxPct, ans) {
-    if (capital <= 0) return 0;
-    var r = tauxPct / 100 / 12, n = ans * 12;
-    if (r === 0) return capital / n;
-    return capital * r / (1 - Math.pow(1 + r, -n));
-  }
-
-  function interetsAnnee1(capital, tauxPct, mens) {
-    var r = tauxPct / 100 / 12, restant = capital, tot = 0;
-    for (var i = 0; i < 12 && restant > 0; i++) { var it = restant * r; tot += it; restant -= (mens - it); }
-    return tot;
-  }
-
-  function etoilesDepuis(effort, paliers) {
-    if (effort <= paliers[0][0]) return paliers[0][1];
-    for (var i = 1; i < paliers.length; i++) {
-      var p0 = paliers[i - 1], p1 = paliers[i];
-      if (effort <= p1[0]) return p0[1] + (p1[1] - p0[1]) * (effort - p0[0]) / (p1[0] - p0[0]);
+    var out = clone(base), k;
+    for (k in (sur || {})) if (Object.prototype.hasOwnProperty.call(sur, k) && k !== '__proto__' && k !== 'constructor' && k !== 'prototype') {
+      if (sur[k] && typeof sur[k] === 'object' && !Array.isArray(sur[k]) && out[k] && typeof out[k] === 'object') out[k] = fusion(out[k], sur[k]);
+      else if (sur[k] !== undefined) out[k] = clone(sur[k]);
     }
-    return paliers[paliers.length - 1][1];
+    return out;
   }
-
-  /* bien = sortie de extraire() ; reglages = DEFAUTS fusionnés ;
-   * curseurs = { nego_pct, apport_pct, taux_pct, duree_ans, travaux_eur, meubles_eur, adr, occ_pct, charges_mois,
-   *              frais_gestion_pct } (surcharges facultatives)
-   * nego_pct : baisse de prix négociée (0 par défaut) ; frais_gestion_pct : conciergerie + plateforme + ménage,
-   *            en % des loyers bruts (défaut = 100 − net du benchmark, soit 38 %). */
+  function paliersValides(p) {
+    return Array.isArray(p) && p.length >= 2 && p.every(function (x, i) {
+      return Array.isArray(x) && x.length === 2 && num(x[0]) !== null && x[0] >= 0 && x[0] <= 100 && num(x[1]) !== null &&
+        x[1] >= 1 && x[1] <= 5 && (!i || (x[0] > p[i - 1][0] && x[1] >= p[i - 1][1]));
+    });
+  }
+  // Ne modifie pas les réglages enregistrés. Complète les nouveaux champs et migre
+  // uniquement le barème en €/mois devenu incompatible. Les budgets personnalisés restent prioritaires.
+  function normaliserReglages(r) {
+    var out = fusion(DEFAUTS, r || {});
+    ['benchmarks', 'ajustements', 'travaux_m2', 'fin', 'defauts_commune'].forEach(function (k) {
+      if (!out[k] || typeof out[k] !== 'object' || Array.isArray(out[k])) out[k] = clone(DEFAUTS[k]);
+    });
+    RANG.forEach(function (t) { out.benchmarks[t] = fusion(DEFAUTS.benchmarks[t], out.benchmarks[t] || {}); });
+    out._paliers_migres = !paliersValides(out.paliers) || !!(r && r._paliers_migres);
+    if (!paliersValides(out.paliers)) out.paliers = clone(DEFAUTS.paliers);
+    out.paliers = out.paliers.map(function (p) { return [Number(p[0]), Number(p[1])]; });
+    return out;
+  }
+  function typeDepuis(surface, pieces) {
+    surface = num(surface); pieces = num(pieces);
+    if (pieces !== null && pieces >= 1) return RANG[Math.min(4, Math.floor(pieces)) - 1];
+    return surface !== null && surface > 0 ? RANG[surface < 30 ? 0 : surface < 45 ? 1 : surface < 67 ? 2 : 3] : 't2';
+  }
+  function equipement(texte, motif, structure) {
+    var re = new RegExp('\\b(?:' + motif + ')\\b', 'g'), m, pos = [], neg = [], doute = [];
+    while ((m = re.exec(texte))) {
+      var avant = texte.slice(Math.max(0, m.index - 80), m.index), apres = texte.slice(re.lastIndex, re.lastIndex + 70);
+      var extrait = texte.slice(Math.max(0, m.index - 35), re.lastIndex + 40).trim();
+      var non = /(?:sans|aucune?|absence de|pas de|pas d['’]|ni|depourvu(?:e)? de)\s*(?:(?:un|une|le|la|de|d['’])\s*)?(?:(?:place|systeme|installation) de\s*)?$/.test(avant) ||
+        /(?:sans|pas de|aucune?)\s+[^.;,\n]{0,60}\b(?:ni|et)\s*$/.test(avant) || /^\s*(?::\s*)?(?:non|absent[e]?|inexistant[e]?)\b/.test(apres);
+      var incertain = /(?:possibilite|option|proximite|proche)\b[^.;,\n]{0,55}$/.test(avant) || /(?:prevoir|installer|installation d['’]une?|vue sur)\s+(?:(?:de|du|d['’]un|un|une|le|la)\s*)?$/.test(avant) ||
+        /^\s*(?:(?:prive|ferme|couvert|disponible)\s+)?(?:en sus|en supplement|en option|a louer|public|municipal|collectif|commun|a proximite|a installer|possible|en face)\b/.test(apres);
+      (non ? neg : incertain ? doute : pos).push(extrait);
+    }
+    var st = tri(structure), conflit = (pos.length && neg.length) || (st === true && neg.length) || (st === false && pos.length);
+    return { valeur: conflit ? null : neg.length ? false : pos.length ? true : st, preuves: pos.concat(neg, doute).slice(0, 4), conflit: !!conflit };
+  }
+  function extraire(raw) {
+    raw = raw || {};
+    var a = raw.attributes || {}, t = norm((raw.title || '') + '\n' + (raw.description || ''));
+    var surface = num(a.square), pieces = num(a.rooms), exclusions = [], preuves = {}, inconnus = [], conflits = [];
+    var titre = norm(raw.title), rtype = norm(a.real_estate_type);
+    if (/\bviager\b/.test(t) && !/\b(?:sans|pas de|hors) viager\b/.test(t)) exclusions.push('viager');
+    if (/vente a terme/.test(t)) exclusions.push('vente à terme');
+    if (/nue[- ]propriete|vente.*usufruit/.test(t)) exclusions.push('nue-propriété / usufruit');
+    if (/sous (offre|compromis)/.test(t) && !/pas sous (offre|compromis)/.test(t)) exclusions.push('sous offre / compromis');
+    if (/vendu loue|locataire en place|bail en cours|vendeur occupant|occupe par/.test(t)) exclusions.push('bien occupé');
+    if (/^(?:vente |a vendre )?(?:local commercial|fonds de commerce|murs commerciaux|bureaux?\b)/.test(titre) || (rtype && !/appartement|maison/.test(rtype))) exclusions.push('non résidentiel');
+    if (/residence (?:services|senior|geree|de tourisme)|bail commercial/.test(t)) exclusions.push('résidence gérée');
+    var dist = null, m;
+    if (/pieds dans l.eau|front de mer|bord de mer/.test(t) && !/(?:pas|loin|hors|proche|proximite)[^.;,\n]{0,30}(?:front de mer|bord de mer)/.test(t)) dist = '0-3';
+    else if ((m = t.match(/(\d{1,4})\s*(?:m|metres?)\s+(?:de la |des |de |du )?(?:mer|plages?)\b/))) {
+      var d = +m[1]; dist = d <= 250 ? '0-3' : d <= 550 ? '3-7' : d <= 1000 ? '7-12' : '12+';
+    } else if ((m = t.match(/(\d{1,2})\s*(?:min|minutes?|mn)\s+a pied\s+(?:de la |des |de |du )?(?:mer|plages?)\b/))) {
+      var mn = +m[1]; dist = mn <= 3 ? '0-3' : mn <= 7 ? '3-7' : mn <= 12 ? '7-12' : '12+';
+    }
+    var nb = num(a.nb_parkings), ext = norm(a.outside_access), eq = {};
+    var defs = {
+      parking: ['parkings?|garages?|place de stationnement', nb === null ? null : nb > 0, norm(a.specificities)],
+      terrasse: ['terrasses?|jardins?', /terrasse|jardin/.test(ext) ? true : /^(non|aucun)$/.test(ext) ? false : null, ''],
+      clim: ['clim|climatisation|climatise[e]?s?', null, ''],
+      vue_mer: ['vue (?:degagee |panoramique )?(?:sur (?:la )?)?mer', null, ''],
+      ascenseur: ['ascenseur', tri(a.elevator), ''], vendu_meuble: ['vendu meuble|vente meublee|cede meuble|entierement meuble|meuble et equipe', null, '']
+    };
+    EQUIPEMENTS.forEach(function (k) {
+      var e = equipement(t + '\n' + defs[k][2], defs[k][0], defs[k][1]); eq[k] = e.valeur; preuves[k] = e.preuves;
+      if (e.valeur === null) inconnus.push(k); if (e.conflit) conflits.push(k);
+    });
+    var gc = norm(a.global_condition), etat = null, niveau = null;
+    if (/renover entierement|renover totalement|entierement a renover|gros travaux|a rehabiliter|plateau a amenager/.test(t)) { etat = 'a_rafraichir'; niveau = 'lourd'; }
+    else if (/neuf|refait/.test(gc) || /(?:appartement|logement|bien)\s+(?:entierement\s+)?(?:renove|refait a neuf)|entierement refait a neuf/.test(t)) { etat = 'refait_neuf'; niveau = 'aucun'; }
+    else if (/bon/.test(gc) || /aucuns? travaux|pas de travaux|bon etat/.test(t)) { etat = 'bon'; niveau = 'aucun'; }
+    else if (/travaux|renover/.test(gc) || /a renover/.test(t)) { etat = 'a_rafraichir'; niveau = 'moyen'; }
+    else if (/rafraichir/.test(gc) || /a rafraichir|travaux a prevoir|rafraichissement/.test(t)) { etat = 'a_rafraichir'; niveau = 'leger'; }
+    var dpe = String(a.energy_rate || '').trim().toUpperCase(); if (!/^[A-G]$/.test(dpe)) dpe = null;
+    if (!dist) inconnus.push('distance_mer'); if (!niveau) inconnus.push('etat'); if (!dpe) inconnus.push('dpe');
+    if (!surface) inconnus.push('surface'); if (!pieces) inconnus.push('pieces');
+    return fusion(eq, { extraction_version: VERSION, preuves: preuves, conflits: conflits,
+      id: String(raw.adId || raw.listing_id || ''), url: raw.url || '', titre: raw.title || '', prix: num(raw.price), ancien_prix: num(a.old_price),
+      surface: surface, pieces: pieces, type: typeDepuis(surface, pieces), dpe: dpe, charges_copro_an: num(a.annual_charges), etage: a.floor_display || null,
+      distance_mer: dist, etat: etat, niveau_travaux: niveau, exclusions: exclusions, inconnus: inconnus,
+      vendeur: raw.seller ? raw.seller.type : null, publie_le: raw.firstPublishedAt || null,
+      lat: raw.location ? raw.location.lat : null, lng: raw.location ? raw.location.lng : null, photos: raw.images && raw.images.urls || [] });
+  }
+  function mensualite(capital, tauxPct, mois) {
+    if (!capital) return 0; var r = tauxPct / 1200;
+    return r ? capital * r / (1 - Math.pow(1 + r, -mois)) : capital / mois;
+  }
+  function etoilesDepuis(x, p) {
+    if (x <= p[0][0]) return p[0][1];
+    for (var i = 1; i < p.length; i++) if (x <= p[i][0]) return p[i - 1][1] + (p[i][1] - p[i - 1][1]) * (x - p[i - 1][0]) / (p[i][0] - p[i - 1][0]);
+    return p[p.length - 1][1];
+  }
   function calculer(bien, reglages, curseurs) {
-    var R = reglages || DEFAUTS;
-    var c = curseurs || {};
-    var F = fusion(R.fin, { apport_pct: c.apport_pct, taux_pct: c.taux_pct, duree_ans: c.duree_ans });
-    var B = R.benchmarks[bien.type];
-    var A = R.ajustements;
-    var raisons = [];
-
-    // --- revenus ---
-    var dist = bien.distance_mer || R.defauts_commune.distance_mer;
-    var niv = bien.niveau_travaux || 'leger';
-    var etatApres = (niv === 'moyen' || niv === 'lourd' || niv === 'structurel') ? 'bon' : (bien.etat || 'a_rafraichir');
-    var mults = [A.distance_mer[dist], A.parking[bien.parking ? 'oui' : 'non'], A.vue_mer[bien.vue_mer ? 'oui' : 'non'],
-                 A.terrasse[bien.terrasse ? 'oui' : 'non'], A.clim[bien.clim ? 'oui' : 'non'], A.etat[etatApres]];
-    var mAdr = 1, mOcc = 1;
-    mults.forEach(function (x) { if (x) { mAdr *= x[0]; mOcc *= x[1]; } });
-    var adr = c.adr != null ? +c.adr : Math.round(B.adr * mAdr);
-    var occ = c.occ_pct != null ? +c.occ_pct : Math.min(B.occ * mOcc, F.occ_max_pct);
-    var brut = adr * 365 * occ / 100 * (1 - F.vacance_imprevue_pct / 100);
-    var gestionPct = c.frais_gestion_pct != null ? +c.frais_gestion_pct : 100 - B.net;
-    var revenusNets = brut * (1 - gestionPct / 100);
-    var coproAn = bien.charges_copro_an;
-    var coproFiable = coproAn != null && coproAn >= F.copro_min_fiable_an;
-    var copro = coproFiable ? coproAn / 12 : B.copro;
-    if (coproAn != null && !coproFiable) raisons.push('Copro annoncée (' + coproAn + ' €/an) peu crédible : défaut utilisé');
-    var chargesHorsCopro = c.charges_hors_copro_mois != null ? +c.charges_hors_copro_mois : B.charges;
-    var coproRetenue = c.copro_mois != null ? +c.copro_mois : copro;
-    var charges = c.charges_mois != null ? +c.charges_mois : chargesHorsCopro + coproRetenue;
-    var netAvantCredit = revenusNets - charges * 12;          // indépendant du prix
-
-    // --- projet & crédit ---
-    var travaux = c.travaux_eur != null ? +c.travaux_eur : Math.round((R.travaux_m2[niv] || 0) * (bien.surface || 0) / 1000) * 1000;
-    var negoPct = c.nego_pct != null ? Math.max(0, Math.min(50, +c.nego_pct)) : 0;
-    var prixAchat = negoPct ? Math.round(bien.prix * (1 - negoPct / 100) / 100) * 100 : bien.prix;
-    var notaire = prixAchat * F.notaire_pct / 100;
-    var meubles = c.meubles_eur != null ? +c.meubles_eur : 0;   // budget meubles à part (0 par défaut)
-    var coutTotal = prixAchat + notaire + travaux + meubles;
-    var apport = prixAchat * F.apport_pct / 100;
-    var emprunt = Math.max(coutTotal - apport, 0);
-    var mens = mensualite(emprunt, F.taux_pct, F.duree_ans);
-    var interets1 = interetsAnnee1(emprunt, F.taux_pct, mens);
-
-    var effortTreso = netAvantCredit / 12 - mens;
-    var effortHorsCapital = (netAvantCredit - interets1) / 12;
-
-    // --- IS : année 1 + économie cumulée sur l'horizon (report des déficits) ---
-    var isDe = function (base) {
-      if (base <= 0) return 0;
-      var b = Math.min(base, F.is_seuil_eur);
-      return b * F.is_bas_pct / 100 + Math.max(base - F.is_seuil_eur, 0) * F.is_haut_pct / 100;
+    bien = bien || {}; var R = normaliserReglages(reglages), c = curseurs || {}, raisons = [];
+    function nombre(v, repli, min, max, nom) {
+      var n = num(v); if (n === null) { if (present(v)) raisons.push(nom + ' invalide : défaut utilisé'); n = repli; }
+      var borne = Math.max(min, Math.min(max, n)); if (borne !== n) raisons.push(nom + ' borné à ' + borne); return borne;
+    }
+    var type = RANG.indexOf(bien.type) >= 0 ? bien.type : typeDepuis(bien.surface, bien.pieces), B = R.benchmarks[type], F = {};
+    var limites = {
+      apport_pct: [0, 100], taux_pct: [0, 30], duree_ans: [1, 40], notaire_pct: [0, 20], amort_bien_ans: [1, 100], part_bati_pct: [0, 100],
+      amort_travaux_ans: [1, 100], amort_meubles_ans: [1, 100], is_bas_pct: [0, 100], is_haut_pct: [0, 100], is_seuil_eur: [0, 1e9],
+      horizon_is_ans: [1, 40], copro_min_fiable_an: [0, 1e6], vacance_imprevue_pct: [0, 100], occ_max_pct: [0, 100], jours_ouverts_an: [0, 365],
+      aleas_travaux_pct: [0, 100], entretien_courant_pct: [0, 100], reserve_renouvellement_pct: [0, 100], plateforme_pct: [0, 99], conciergerie_pct: [0, 100],
+      frais_dossier_eur: [0, 1e7], garantie_pct_emprunt: [0, 20], assurance_emprunteur_pct: [0, 10], frais_creation_eur: [0, 1e7],
+      frais_lancement_eur: [0, 1e7], travaux_copro_eur: [0, 1e8], crl_pct: [0, 100], duree_sejour_moyenne: [1, 365],
+      menage_cout_sejour: [0, 1e5], reserve_tresorerie_mois: [0, 24], is_autre_eur: [0, 1e8]
     };
-    var amortBienAn = (prixAchat + notaire) * F.part_bati_pct / 100 / F.amort_bien_ans;
-    var r = F.taux_pct / 100 / 12, restant = emprunt;
-    var reportAvec = 0, reportSans = 0, cumulAvec = 0, cumulSans = 0, anneesSansIS = 0;
-    var an1 = null;
+    Object.keys(limites).forEach(function (k) { F[k] = nombre(present(c[k]) ? c[k] : R.fin[k], DEFAUTS.fin[k], limites[k][0], limites[k][1], k); });
+    F.horizon_is_ans = Math.floor(F.horizon_is_ans);
+    var prix = num(bien.prix); if (prix === null || prix <= 0) throw new RangeError('Prix du bien absent ou invalide');
+    var surface = nombre(bien.surface, 0, 0, 10000, 'surface'), nego = nombre(c.nego_pct, 0, 0, 50, 'nego_pct'), prixAchat = prix * (1 - nego / 100);
+    var niv = present(c.niveau_travaux) ? c.niveau_travaux : bien.niveau_travaux;
+    if (!Object.prototype.hasOwnProperty.call(DEFAUTS.travaux_m2, niv)) niv = 'leger';
+    var travauxBase = surface * nombre(R.travaux_m2[niv], DEFAUTS.travaux_m2[niv], 0, 20000, 'travaux_m2');
+    // Le curseur représente un budget TOTAL déjà aléas compris.
+    var travaux = present(c.travaux_eur) ? nombre(c.travaux_eur, travauxBase, 0, 1e8, 'travaux_eur') : travauxBase * (1 + F.aleas_travaux_pct / 100);
+    var meubles = nombre(present(c.meubles_eur) ? c.meubles_eur : B.meubles, DEFAUTS.benchmarks[type].meubles, 0, 1e7, 'meubles_eur');
+    var etatApres = c.etat_apres_travaux || bien.etat_apres_travaux;
+    if (!Object.prototype.hasOwnProperty.call(DEFAUTS.ajustements.etat, etatApres)) {
+      var renovationFinancee = travauxBase > 0 && travaux >= travauxBase && niv !== 'aucun';
+      etatApres = renovationFinancee ? 'bon' : bien.etat;
+      if (renovationFinancee) raisons.push('État bon après travaux supposé : programme et devis à confirmer');
+      else if (travaux > 0 && niv !== 'aucun') raisons.push('Budget inférieur au programme de travaux : état actuel conservé');
+    }
+    var dist = bien.distance_mer || null, mAdr = 1;
+    function ajuster(cat, cle) {
+      if (cle === null || cle === undefined) return; var pair = R.ajustements[cat] && R.ajustements[cat][cle];
+      if (Array.isArray(pair) && num(pair[0]) !== null) mAdr *= nombre(pair[0], 1, 0.1, 2, cat);
+    }
+    ajuster('distance_mer', dist);
+    ['parking', 'terrasse', 'clim', 'vue_mer'].forEach(function (k) { var v = tri(bien[k]); ajuster(k, v === null ? null : v ? 'oui' : 'non'); if (v === null) raisons.push(k + ' inconnu : effet neutre'); });
+    ajuster('etat', etatApres); mAdr = Math.max(0.8, Math.min(1.2, mAdr));
+    var adr = nombre(c.adr, nombre(B.adr, DEFAUTS.benchmarks[type].adr, 0, 10000, 'benchmark ADR') * mAdr, 0, 10000, 'adr');
+    // Pas de coefficients d'occupation cumulés, y compris avec des réglages v1.
+    var occ = nombre(c.occ_pct, nombre(B.occ, DEFAUTS.benchmarks[type].occ, 0, 100, 'benchmark occupation'), 0, F.occ_max_pct, 'occ_pct');
+    if (occ > 85) raisons.push('Occupation supérieure à 85 % : vérifier les comparables');
+    var nuits = F.jours_ouverts_an * occ / 100 * (1 - F.vacance_imprevue_pct / 100), brut = adr * nuits;
+    var pf = F.plateforme_pct / 100, cc = F.conciergerie_pct / 100, assiette = c.assiette_conciergerie || R.fin.assiette_conciergerie;
+    var plateforme = brut * pf, conciergerie = brut * (assiette === 'brut' ? 1 : 1 - pf) * cc;
+    var gestionPct = (pf + (assiette === 'brut' ? 1 : 1 - pf) * cc) * 100, gestion = plateforme + conciergerie;
+    var netLegacy = nombre(B.net, 67.6, 0, 100, 'benchmark net');
+    if (present(c.frais_gestion_pct) || (Math.abs(netLegacy - 67.6) > 1e-8 && !present(c.plateforme_pct) && !present(c.conciergerie_pct))) {
+      gestionPct = nombre(c.frais_gestion_pct, 100 - netLegacy, 0, 100, 'frais_gestion_pct'); gestion = brut * gestionPct / 100; plateforme = null; conciergerie = null;
+      raisons.push('Gestion forfaitaire : vérifier la neutralité du ménage');
+    }
+    var sejours = nuits / F.duree_sejour_moyenne, coutMenage = sejours * F.menage_cout_sejour;
+    var factureMenage = present(c.menage_facture_sejour) ? c.menage_facture_sejour : R.fin.menage_facture_sejour;
+    var prixMenage = nombre(factureMenage, F.menage_cout_sejour / (1 - pf), 0, 1e6, 'menage_facture_sejour');
+    var recettesMenage = sejours * prixMenage, fraisMenage = recettesMenage * pf, margeMenage = recettesMenage - fraisMenage - coutMenage;
+    if (!F.menage_cout_sejour) raisons.push('Ménage supposé neutre : coûts et refacturation à confirmer');
+    var coproAn = num(bien.charges_copro_an), coproAnn = coproAn !== null && coproAn >= 0;
+    var copro = nombre(c.copro_mois, coproAnn ? coproAn / 12 : nombre(B.copro, DEFAUTS.benchmarks[type].copro, 0, 1e6, 'copro défaut'), 0, 1e6, 'copro_mois');
+    if (coproAnn && coproAn < F.copro_min_fiable_an) raisons.push('Copro faible (' + coproAn + ' €/an) conservée : justificatif à vérifier');
+    var horsCopro = nombre(c.charges_hors_copro_mois, nombre(B.charges, DEFAUTS.benchmarks[type].charges, 0, 1e6, 'charges défaut'), 0, 1e6, 'charges_hors_copro_mois');
+    var charges = nombre(c.charges_mois, horsCopro + copro, 0, 1e6, 'charges_mois');
+    if (present(c.charges_mois)) horsCopro = Math.max(0, charges - copro);
+    var crlApplicable = tri(present(c.crl_applicable) ? c.crl_applicable : present(bien.crl_applicable) ? bien.crl_applicable : R.fin.crl_applicable);
+    if (crlApplicable === null) raisons.push('CRL de ' + F.crl_pct + ' % provisionnée : âge du bâtiment et exonérations à vérifier');
+    var crl = crlApplicable === false ? 0 : nombre(c.crl_assiette_eur, brut, 0, 1e9, 'crl_assiette_eur') * F.crl_pct / 100;
+    var entretien = brut * F.entretien_courant_pct / 100, reserve = brut * F.reserve_renouvellement_pct / 100;
+    var revenusNets = brut - gestion + margeMenage, netAvantCredit = revenusNets - charges * 12 - crl - entretien - reserve;
+    var notaire = prixAchat * F.notaire_pct / 100;
+    var coutHorsFinancement = prixAchat + notaire + travaux + meubles + F.travaux_copro_eur + F.frais_creation_eur + F.frais_lancement_eur;
+    var apportDemande = present(c.apport_eur) ? nombre(c.apport_eur, 0, 0, 1e10, 'apport_eur') : prixAchat * F.apport_pct / 100;
+    var aFinancer = Math.max(0, coutHorsFinancement - apportDemande), dossier = aFinancer > 0 ? F.frais_dossier_eur : 0;
+    var emprunt = aFinancer > 0 ? (aFinancer + dossier) / (1 - F.garantie_pct_emprunt / 100) : 0;
+    var garantie = emprunt * F.garantie_pct_emprunt / 100, coutTotal = coutHorsFinancement + dossier + garantie, apport = Math.min(apportDemande, coutTotal);
+    var moisCredit = Math.round(F.duree_ans * 12), mens = mensualite(emprunt, F.taux_pct, moisCredit), assurance = emprunt * F.assurance_emprunteur_pct / 100;
+    // Frais bancaires exclus de l'assiette du score, inclus dans le coût et le financement réels.
+    var rendement = netAvantCredit / coutHorsFinancement * 100;
+    var eligibleReduit = tri(present(c.is_taux_reduit_eligible) ? c.is_taux_reduit_eligible : R.fin.is_taux_reduit_eligible) !== false;
+    function isDe(base) { return base <= 0 ? 0 : eligibleReduit ? Math.min(base, F.is_seuil_eur) * F.is_bas_pct / 100 + Math.max(0, base - F.is_seuil_eur) * F.is_haut_pct / 100 : base * F.is_haut_pct / 100; }
+    // Bénéfice des autres activités retrouvé à partir de l'IS qu'elles génèrent (inverse du barème).
+    function beneficeDepuisIS(is) {
+      if (is <= 0) return 0;
+      if (!eligibleReduit || !F.is_bas_pct) return F.is_haut_pct ? is / (F.is_haut_pct / 100) : 0;
+      var plafondBas = F.is_seuil_eur * F.is_bas_pct / 100;
+      return is <= plafondBas ? is / (F.is_bas_pct / 100) : F.is_seuil_eur + (is - plafondBas) / (F.is_haut_pct / 100);
+    }
+    var benefAutre = beneficeDepuisIS(F.is_autre_eur), isAutre = isDe(benefAutre);
+    function dotation(montant, duree, an) { return montant / duree * Math.max(0, Math.min(1, duree - an + 1)); }
+    var restant = emprunt, reportAvec = 0, reportSans = 0, cumulAvec = 0, cumulSans = 0, anneesSansIS = 0, an1, echeancier = [];
     for (var y = 1; y <= F.horizon_is_ans; y++) {
-      var intY = 0;
-      for (var mo = 0; mo < 12 && restant > 0 && y <= F.duree_ans; mo++) { var iy = restant * r; intY += iy; restant -= (mens - iy); }
-      var amortY = (y <= F.amort_bien_ans ? amortBienAn : 0) + (y <= F.amort_travaux_ans ? travaux / F.amort_travaux_ans : 0)
-                 + (y <= F.amort_meubles_ans ? meubles / F.amort_meubles_ans : 0);
-      var resSans = netAvantCredit - intY + reportSans;            // sans amortissement
-      var resAvec = netAvantCredit - intY - amortY + reportAvec;   // avec amortissement
-      var isSans = isDe(resSans), isAvec = isDe(resAvec);
-      reportSans = Math.min(resSans, 0); reportAvec = Math.min(resAvec, 0);
-      cumulSans += isSans; cumulAvec += isAvec;
-      if (isAvec === 0) anneesSansIS++;
-      if (y === 1) an1 = { amort: amortY, resultat: netAvantCredit - intY - amortY, is: isAvec };
+      var intY = 0, capitalY = 0, paiementsY = 0, moisY = 0;
+      for (var mo = 0; mo < 12 && restant > 1e-7 && (y - 1) * 12 + mo < moisCredit; mo++) {
+        var it = restant * F.taux_pct / 1200, paie = Math.min(mens, restant + it), cap = paie - it;
+        intY += it; capitalY += cap; paiementsY += paie; restant = Math.max(0, restant - cap); moisY++;
+      }
+      var assurY = assurance * moisY / 12;
+      var amortY = dotation((prixAchat + notaire) * F.part_bati_pct / 100, F.amort_bien_ans, y) + dotation(travaux + F.travaux_copro_eur, F.amort_travaux_ans, y) + dotation(meubles, F.amort_meubles_ans, y);
+      // Réserve non dépensée réintégrée. Frais initiaux déduits en année 1 : hypothèse fiscale à valider.
+      var fiscalAvantAmort = netAvantCredit + reserve - intY - assurY - (y === 1 ? dossier + garantie + F.frais_creation_eur + F.frais_lancement_eur : 0);
+      // Résultat de la société entière (autres activités + ce bien) ; l'IS du bien = IS total − IS déjà dû.
+      // Négatif = économie d'IS pour la société.
+      var resSans = benefAutre + fiscalAvantAmort + reportSans, resAvec = benefAutre + fiscalAvantAmort - amortY + reportAvec;
+      var isSans = isDe(resSans) - isAutre, isAvec = isDe(resAvec) - isAutre;
+      reportSans = Math.min(0, resSans); reportAvec = Math.min(0, resAvec); cumulSans += isSans; cumulAvec += isAvec; if (isAvec <= 0) anneesSansIS++;
+      var ligne = { annee: y, interets: intY, capital_rembourse: capitalY, echeances: paiementsY, assurance: assurY, amortissements: amortY,
+        resultat_fiscal: fiscalAvantAmort - amortY, is_societe_total: isAvec + isAutre, deficit_reportable: -reportAvec, is: isAvec, is_sans_amortissement: isSans, capital_restant: restant,
+        cash_flow_apres_is: netAvantCredit - paiementsY - assurY - isAvec };
+      echeancier.push(ligne); if (y === 1) an1 = ligne;
     }
-    var gainIS10 = cumulSans - cumulAvec;
-
-    // --- étoiles ---
-    var etoiles, statut = 'ok';
-    if (bien.exclusions && bien.exclusions.length) { statut = 'exclu'; etoiles = 0; raisons.push('Exclu : ' + bien.exclusions.join(', ')); }
-    else if (netAvantCredit < 0) { statut = 'rejet'; etoiles = 0; raisons.push('Même payé comptant, il perd ' + Math.round(-netAvantCredit) + ' €/an : loyers nets inférieurs aux charges fixes. Apport et négociation n\'y changent rien.'); }
-    else {
-      etoiles = etoilesDepuis(effortHorsCapital, R.paliers);
-      if (bien.dpe === 'F' || bien.dpe === 'G') { etoiles = Math.min(etoiles, 1); raisons.push('DPE ' + bien.dpe + ' : meublé de tourisme interdit (loi Le Meur) sans rénovation'); }
-      else if (bien.dpe === 'E') { etoiles -= 0.5; raisons.push('DPE E : D exigé dès 2034'); }
-      etoiles = Math.max(1, Math.min(5, Math.round(etoiles * 2) / 2));
-    }
-    if (!bien.distance_mer) raisons.push('Distance mer inconnue : défaut ' + dist);
-    if (!bien.niveau_travaux) raisons.push('État inconnu : travaux légers supposés');
-
-    var r0 = function (x) { return Math.round(x); };
+    var statutJuridique = c.statut_juridique || bien.statut_juridique || 'a_verifier';
+    if (['confirme', 'a_verifier', 'incompatible'].indexOf(statutJuridique) < 0) statutJuridique = 'a_verifier';
+    var dpe = String(bien.dpe || '').trim().toUpperCase();
+    if (dpe === 'F' || dpe === 'G') { if (statutJuridique !== 'incompatible') statutJuridique = 'a_verifier'; raisons.push('DPE ' + dpe + ' : vérifier changement d’usage et rénovation ; le budget ne garantit pas une nouvelle étiquette'); }
+    else if (dpe === 'E') raisons.push('DPE E : budgéter la conformité énergétique à l’échéance 2034');
+    else if (!/^[A-D]$/.test(dpe)) { if (statutJuridique === 'confirme') statutJuridique = 'a_verifier'; raisons.push('DPE valide à vérifier'); }
+    if (statutJuridique !== 'confirme') raisons.push('Faisabilité juridique ' + (statutJuridique === 'incompatible' ? 'incompatible' : 'à vérifier : copropriété et règles locales pour la société'));
+    var etoilesBrutes = etoilesDepuis(rendement, R.paliers), etoiles = Math.max(1, Math.min(5, Math.round(etoilesBrutes * 2) / 2)), statut = 'ok';
+    if ((bien.exclusions || []).length || statutJuridique === 'incompatible') { statut = 'exclu'; etoiles = 0; raisons.push('Exclu : ' + ((bien.exclusions || []).join(', ') || 'incompatibilité juridique')); }
+    else if (netAvantCredit < 0) { statut = 'rejet'; etoiles = 0; raisons.push('Exploitation déficitaire après entretien et réserve, avant crédit'); }
+    if (!dist) raisons.push('Distance mer inconnue : effet neutre, emplacement à confirmer');
+    if (!bien.niveau_travaux && !present(c.travaux_eur)) raisons.push('État inconnu : provision de travaux légers, devis nécessaire');
+    if (!surface) raisons.push('Surface absente : budget travaux non estimable');
+    if (R._paliers_migres) raisons.push('Ancien barème mensuel remplacé par le barème de rendement');
+    if (!bien.extraction_version) raisons.push('Extraction ancienne : réextraire les annonces brutes pour fiabiliser les équipements');
+    var reserveInitiale = F.reserve_tresorerie_mois * (charges + mens + assurance / 12);
+    var dscr = an1.echeances + an1.assurance > 0 ? netAvantCredit / (an1.echeances + an1.assurance) : null;
+    var r0 = function (x) { return x === null ? null : Math.round(x); };
     return {
-      version: VERSION, statut: statut, etoiles: etoiles, raisons: raisons,
-      hypotheses: { type: bien.type, distance_mer: dist, niveau_travaux: niv, adr: adr, occ_pct: Math.round(occ * 10) / 10,
-                    charges_mois: Math.round(charges), charges_hors_copro_mois: chargesHorsCopro, copro_mois: Math.round(coproRetenue), copro_source: c.copro_mois != null ? 'curseur' : coproFiable ? 'annonce' : 'defaut', travaux_eur: travaux, meubles_eur: meubles,
-                    apport_pct: F.apport_pct, taux_pct: F.taux_pct, duree_ans: F.duree_ans,
-                    nego_pct: negoPct, prix_achat: prixAchat, frais_gestion_pct: gestionPct },
-      revenus_bruts_an: r0(brut), frais_gestion_an: r0(brut - revenusNets), revenus_nets_an: r0(revenusNets), net_avant_credit_an: r0(netAvantCredit),
-      cout_total: r0(coutTotal), apport: r0(apport), emprunt: r0(emprunt),
-      mensualite: r0(mens), interets_an1: r0(interets1),
-      effort_treso_mois: r0(effortTreso), effort_hors_capital_mois: r0(effortHorsCapital),
-      rendement_net_pct: Math.round(netAvantCredit / coutTotal * 1000) / 10,
-      benefice_an1_hors_credit: r0(netAvantCredit),
-      amortissements_an1: r0(an1.amort), resultat_fiscal_an1: r0(an1.resultat), is_du_an1: r0(an1.is),
-      gain_is_horizon: r0(gainIS10), is_du_horizon: r0(cumulAvec), annees_sans_is: anneesSansIS, horizon_is_ans: F.horizon_is_ans,
-      benefice_net_an1_hors_capital: r0(netAvantCredit - interets1 - an1.is)
+      version: VERSION, statut: statut, statut_juridique: statutJuridique, etoiles: etoiles, raisons: raisons,
+      score_metrique: 'rendement_exploitation_hors_financement', etoiles_non_arrondies: etoilesBrutes,
+      eligible_alerte: statut === 'ok' && statutJuridique === 'confirme' && !!surface && crlApplicable !== null && !!bien.extraction_version &&
+        !!dist && !!bien.niveau_travaux && ['parking', 'terrasse', 'clim', 'vue_mer'].every(function (k) { return tri(bien[k]) !== null; }),
+      hypotheses: { type: type, distance_mer: dist, niveau_travaux: niv, etat_apres_travaux: etatApres || null, adr: adr, occ_pct: occ,
+        jours_ouverts_an: F.jours_ouverts_an, nuits_louees: nuits, charges_mois: charges, charges_hors_copro_mois: horsCopro, copro_mois: copro,
+        copro_source: present(c.copro_mois) ? 'curseur' : coproAnn ? 'annonce' : 'defaut', travaux_eur: travaux, meubles_eur: meubles,
+        apport_pct: F.apport_pct, taux_pct: F.taux_pct, duree_ans: F.duree_ans, nego_pct: nego, prix_achat: prixAchat, frais_gestion_pct: gestionPct,
+        crl_applicable: crlApplicable, crl_pct: F.crl_pct, menage_cout_sejour: F.menage_cout_sejour, menage_facture_sejour: prixMenage,
+        entretien_courant_pct: F.entretien_courant_pct, reserve_renouvellement_pct: F.reserve_renouvellement_pct,
+        frais_dossier_eur: dossier, garantie_eur: garantie, frais_creation_eur: F.frais_creation_eur, frais_lancement_eur: F.frais_lancement_eur,
+        travaux_copro_eur: F.travaux_copro_eur, assurance_emprunteur_pct: F.assurance_emprunteur_pct, is_taux_reduit_eligible: eligibleReduit },
+      revenus_bruts_an: r0(brut), frais_gestion_an: r0(gestion), revenus_nets_an: r0(revenusNets), plateforme_an: r0(plateforme), conciergerie_an: r0(conciergerie),
+      recettes_menage_an: r0(recettesMenage), cout_menage_an: r0(coutMenage), plateforme_menage_an: r0(fraisMenage), marge_menage_an: r0(margeMenage),
+      charges_fixes_an: r0(charges * 12), crl_an: r0(crl), entretien_courant_an: r0(entretien), reserve_renouvellement_an: r0(reserve),
+      net_avant_credit_an: r0(netAvantCredit), cout_total: r0(coutTotal), cout_hors_financement: r0(coutHorsFinancement), notaire_eur: r0(notaire),
+      frais_financement_eur: r0(dossier + garantie), apport: r0(apport), emprunt: r0(emprunt), tresorerie_initiale: r0(reserveInitiale), fonds_propres_initiaux: r0(apport + reserveInitiale),
+      mensualite: r0(mens), mensualite_assurance_comprise: r0(mens + assurance / 12), assurance_emprunteur_an: r0(assurance), interets_an1: r0(an1.interets), capital_rembourse_an1: r0(an1.capital_rembourse),
+      effort_treso_mois: r0(an1.cash_flow_apres_is / 12), cash_flow_apres_is_an: r0(an1.cash_flow_apres_is), effort_treso_avant_is_mois: r0((an1.cash_flow_apres_is + an1.is) / 12),
+      effort_hors_capital_mois: r0((netAvantCredit - an1.interets - an1.assurance - an1.is) / 12),
+      rendement_net_pct: Math.round(rendement * 100) / 100, rendement_net_cout_total_pct: Math.round(netAvantCredit / coutTotal * 10000) / 100,
+      couverture_dette: dscr === null ? null : Math.round(dscr * 100) / 100, benefice_an1_hors_credit: r0(netAvantCredit),
+      amortissements_an1: r0(an1.amortissements), resultat_fiscal_an1: r0(an1.resultat_fiscal), is_du_an1: r0(an1.is), gain_is_horizon: r0(cumulSans - cumulAvec),
+      is_du_horizon: r0(cumulAvec), annees_sans_is: anneesSansIS,
+      is_autre_eur: r0(isAutre), benefice_autre_eur: r0(benefAutre), is_societe_an1: r0(an1.is_societe_total),
+      economie_is_societe_an1: r0(Math.max(0, -an1.is)), economie_is_societe_horizon: r0(Math.max(0, -cumulAvec)),
+      amortissement_bien_an: r0((prixAchat + notaire) * F.part_bati_pct / 100 / F.amort_bien_ans), horizon_is_ans: F.horizon_is_ans,
+      benefice_net_an1_hors_capital: r0(netAvantCredit - an1.interets - an1.assurance - an1.is), echeancier_annuel: echeancier,
+      limites_modele: ['Année stabilisée : lancement et saisonnalité non simulés', 'IS simplifié ; déduction des frais initiaux et amortissements à valider',
+        'Fiscalité de revente et distribution non simulée ; économie IS hors sortie']
     };
   }
-
-  var api = { VERSION: VERSION, DEFAUTS: DEFAUTS, extraire: extraire, calculer: calculer, typeDepuis: typeDepuis };
+  var api = { VERSION: VERSION, DEFAUTS: DEFAUTS, extraire: extraire, calculer: calculer, typeDepuis: typeDepuis, normaliserReglages: normaliserReglages };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.DealScoring = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

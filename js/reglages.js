@@ -23,14 +23,20 @@ function ouvrirReglages() {
       ${rg('apport_pct', 'Apport', 0, 100, 5, fin.apport_pct, v => v + ' %')}
       ${rg('taux_pct', 'Taux', 2, 6, 0.05, fin.taux_pct, v => (+v).toFixed(2).replace('.', ',') + ' %')}
       ${rg('duree_ans', 'Durée', 5, 25, 1, fin.duree_ans, v => v + ' ans')}
-      <p class="note">Référence : 20 % / 4 % / 15 ans. Les étoiles de tous les biens sont recalculées ; un bien qui a ses propres réglages garde les siens.</p>
+      ${rg('assurance_emprunteur_pct', 'Assurance emprunteur (% du capital initial / an)', 0, 1.5, 0.05, fin.assurance_emprunteur_pct, v => (+v).toFixed(2) + ' %')}
+      <p class="note">Référence : 20 % du prix / 4 % / 15 ans. Le financement change le cash-flow, pas les étoiles. Les réglages propres au bien restent prioritaires.</p>
+      <label class="label" for="g_is_autre">IS que ta société paie déjà par an (hors ce bien)</label>
+      <input class="input" type="number" inputmode="numeric" min="0" step="500" id="g_is_autre" value="${fin.is_autre_eur || 0}">
+      <p class="note">0 = le bien est seul dans sa société. Sinon, sa perte fiscale (intérêts, amortissements, charges) réduit cet IS chaque année, et le cash-flow en tient compte. Ex. 20 000 € d'IS ≈ 97 000 € de bénéfice.</p>
     </div>
 
     <h3 class="h3">Benchmarks Golfe-Juan</h3>
     <div class="card field" style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:.85em"><thead><tr><th></th><th>ADR €</th><th>Occ. %</th><th>Charges hors copro €/mois</th><th>Copro défaut €/mois</th></tr></thead><tbody>${bench}</tbody></table>
       <button class="small acc" data-act="bench">Enregistrer les benchmarks</button>
-      <p class="note">T2 = ton bien réel (ADR 115 €, 54 %, 453 €/mois copro incluse). Les autres types sont extrapolés.</p>
+      <p class="note">Hypothèses de simulation à valider avec des comparables locaux et des devis. Occupation sur les nuits ouvertes, hors fermetures. Les budgets déjà enregistrés restent actifs.</p>
+      <button class="small" data-act="defaults-v2">Remplacer les réglages globaux par les valeurs v2</button>
+      <p class="note">Ce bouton remplace financement, budgets, benchmarks Golfe-Juan et barème. Il conserve les corrections propres à chaque bien.</p>
     </div>
 
     <h3 class="h3">Critères de recherche</h3>
@@ -64,15 +70,24 @@ function ouvrirReglages() {
   majProjection();
   ['crLim'].forEach(id => $(id).addEventListener('input', majProjection));
   let tg = null;
+  let ti = null;
   $('sheetBody').oninput = e => {
+    if (e.target.id === 'g_is_autre') {
+      clearTimeout(ti);
+      ti = setTimeout(() => {
+        const f = Object.assign({}, Sync.reglagesPour('golfe-juan').fin, { is_autre_eur: Math.max(0, +e.target.value || 0) });
+        Sync.reglage('fin', 'global', f); Deal.toast('IS de ta société pris en compte');
+      }, 700);
+      return;
+    }
     const s = e.target.closest('[data-g]'); if (!s) return;
-    const fmt = { apport_pct: v => v + ' %', taux_pct: v => (+v).toFixed(2).replace('.', ',') + ' %', duree_ans: v => v + ' ans' }[s.dataset.g];
+    const fmt = { apport_pct: v => v + ' %', taux_pct: v => (+v).toFixed(2).replace('.', ',') + ' %', duree_ans: v => v + ' ans', assurance_emprunteur_pct: v => (+v).toFixed(2) + ' %' }[s.dataset.g];
     $('go_' + s.dataset.g).textContent = fmt(s.value);
     clearTimeout(tg);
     tg = setTimeout(() => {
       const f = Object.assign({}, Sync.reglagesPour('golfe-juan').fin);
-      ['apport_pct', 'taux_pct', 'duree_ans'].forEach(k => { f[k] = +$('g_' + k).value; });
-      Sync.reglage('fin', 'global', f); Deal.toast('Financement mis à jour : étoiles recalculées');
+      ['apport_pct', 'taux_pct', 'duree_ans', 'assurance_emprunteur_pct'].forEach(k => { f[k] = +$('g_' + k).value; });
+      Sync.reglage('fin', 'global', f); Deal.toast('Financement mis à jour : cash-flow recalculé');
     }, 500);
   };
   chargerAppareils();
@@ -128,6 +143,16 @@ async function clicReglages(e) {
   if (act === 'sync') { Sync.sync(); Deal.toast('Synchronisation…'); }
   else if (act === 'maj') Deal.checkUpdate($('majInfo'));
   else if (act === 'inviter') inviter();
+  else if (act === 'defaults-v2') {
+    b.disabled = true;
+    try {
+      const D = JSON.parse(JSON.stringify(window.DealScoring.DEFAUTS));
+      for (const k of ['benchmarks', 'defauts_commune', 'ajustements', 'travaux_m2', 'fin', 'paliers']) {
+        await Sync.reglage(k, k === 'benchmarks' || k === 'defauts_commune' ? 'golfe-juan' : 'global', D[k]);
+      }
+      Deal.toast('Valeurs v2 enregistrées ; corrections par bien conservées'); ouvrirReglages();
+    } catch (err) { b.disabled = false; Deal.toast(err.message); }
+  }
   else if (act === 'bench') {
     const B = JSON.parse(JSON.stringify(Sync.reglagesPour('golfe-juan').benchmarks));
     let ok = true;

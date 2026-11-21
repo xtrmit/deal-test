@@ -152,6 +152,12 @@ h2{margin:0;font-family:'Fredoka',sans-serif;font-weight:600;font-size:1.3em}
 .simu{display:flex;flex-direction:column;gap:10px}
 .simbar{position:sticky;top:-16px;z-index:2;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--bg);padding:10px 2px;border-bottom:1px solid var(--line)}
 .sheet.full .simbar{top:calc(-12px - env(safe-area-inset-top))}
+/* Fiche : une colonne sur téléphone (simulateur entre « vendeur qui fatigue » et les caractéristiques),
+   deux colonnes sur grand écran (simulateur fixe à droite). */
+.fiche{display:flex;flex-direction:column;gap:14px}
+.fiche .col-g{display:contents}
+.fiche .apres{display:flex;flex-direction:column;gap:14px;order:3}
+.fiche .simu{order:2}
 .simbar .big{font-family:'Fredoka',sans-serif;font-weight:600;font-size:1.1em}
 .carac{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 14px}
 .hist{display:flex;flex-direction:column;gap:4px;font-size:.85em}
@@ -172,3 +178,52 @@ video.scan{width:100%;border-radius:16px;background:#000}
 .toast{position:fixed;left:16px;right:16px;bottom:calc(20px + env(safe-area-inset-bottom));max-width:528px;margin:0 auto;background:var(--toast);color:var(--toast-text);border-radius:16px;padding:10px 10px 10px 16px;display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:.9em;font-weight:700;z-index:60;opacity:0;transform:translateY(12px);pointer-events:none;transition:opacity .2s,transform .2s}
 .toast.on{opacity:1;transform:none;pointer-events:auto}
 .toast button{border:0;background:transparent;color:inherit;font-weight:800;text-decoration:underline;min-height:40px;padding:0 10px}
+
+/* Aides de calcul, galerie */
+.metrics .a-aide{cursor:pointer}
+.metrics dt.a-aide .i{color:var(--accent);font-weight:800;font-size:.9em}
+.metrics .aide{grid-column:1/-1;background:var(--line);border-radius:12px;padding:10px 12px;font-size:.92em;line-height:1.45;color:var(--text);margin:2px 0 6px}
+.metrics .aide p{margin:4px 0}
+.metrics .aide .calc{display:flex;justify-content:space-between;gap:10px;border-bottom:1px dashed var(--muted);padding:2px 0;font-variant-numeric:tabular-nums}
+.metrics .aide .calc:last-of-type{border-bottom:0}
+.galerie{position:relative}
+.photos img{cursor:zoom-in}
+.gal-nav{display:none;position:absolute;top:calc(50% - 22px);width:44px;height:44px;border-radius:50%;border:0;background:rgba(0,0,0,.45);color:#fff;font-size:1.6em;line-height:1;cursor:pointer}
+.gal-nav.g{left:8px}.gal-nav.d{right:8px}
+.gal-nb{display:block;font-size:.78em;color:var(--muted);margin-top:4px;text-align:right}
+@media (hover:hover){.gal-nav{display:block}.tactile{display:none}}
+.lb{position:fixed;inset:0;z-index:80;background:rgba(0,0,0,.93);display:flex;align-items:center;justify-content:center}
+.lb[hidden]{display:none}
+.lb img{max-width:96vw;max-height:90dvh;object-fit:contain;border-radius:8px;user-select:none}
+.lb-x,.lb-n{position:absolute;border:0;background:rgba(255,255,255,.15);color:#fff;border-radius:50%;width:48px;height:48px;font-size:1.5em;cursor:pointer}
+.lb-x{top:calc(14px + env(safe-area-inset-top));right:14px}
+.lb-n{top:calc(50% - 24px)}.lb-n.g{left:14px}.lb-n.d{right:14px}
+.lb-c{position:absolute;bottom:calc(16px + env(safe-area-inset-bottom));color:#fff;font-weight:700}
+.simu-cols{display:flex;flex-direction:column;gap:10px}
+
+/* ================== Grand écran (PC) : on occupe la largeur ================== */
+@media (min-width:1000px){
+  .app{max-width:1680px}
+  .top{padding-left:28px;padding-right:28px}
+  main{padding-left:28px;padding-right:28px}
+  .biens{grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:14px}
+  .sheet.full{max-width:1500px;padding-left:28px;padding-right:28px}
+  .fiche{display:grid;grid-template-columns:minmax(0,1fr) minmax(400px,470px);gap:28px;align-items:start}
+  .fiche .col-g{display:flex;flex-direction:column;gap:14px}
+  .fiche .simu{position:sticky;top:0;max-height:calc(100dvh - 90px);overflow-y:auto;overscroll-behavior:contain;padding-right:4px}
+  .fiche .simbar{top:0}
+  .photos{margin:0;padding:0}
+  .photos img{width:auto;height:300px;max-width:none}
+}
+/* Très grand écran : photos et infos | curseurs | tableau, tout visible sans défiler */
+@media (min-width:1280px){
+  .sheet.full{max-width:none}
+  .fiche{grid-template-columns:minmax(0,1fr) minmax(0,1.55fr);gap:24px}
+  .fiche .simu{max-height:calc(100dvh - 76px)}
+  .simu-cols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:12px;align-items:start}
+  .simu-cols .sliders{gap:2px;padding:10px 14px}
+  .simu-cols .slider input[type=range]{height:20px}
+  .simu-cols #metrics{font-size:.92em;padding:10px 14px}
+  .metrics{gap:3px 10px}
+  .photos img{height:280px}
+}

@@ -193,7 +193,7 @@
     const manquants = Object.keys(R).filter(k => !R[k]);
     manquants.forEach(k => { R[k] = D[k]; });
     R._manquants = manquants;
-    return R;
+    return window.DealScoring.normaliserReglages(R);
   }
 
   /* ---------- Connexion ---------- */

@@ -43,9 +43,13 @@ function bienEffectif(b) {
   const a = Sync.data.annotations.get(b.lbc_id);
   const corr = (a && a.curseurs && a.curseurs.physique) || {};
   const base = b.physique || { exclusions: [], inconnus: ['distance_mer', 'etat'], distance_mer: null, niveau_travaux: null, etat: null,
-                               vue_mer: false, terrasse: false, parking: false, clim: false, charges_copro_an: null };
+                               vue_mer: null, terrasse: null, parking: null, clim: null, charges_copro_an: null };
   const e = Object.assign({}, base, corr, { prix: b.prix, surface: b.surface, pieces: b.pieces, type: b.type || base.type, dpe: b.dpe || base.dpe });
   if (corr.niveau_travaux && !corr.etat) e.etat = corr.niveau_travaux === 'aucun' ? (base.etat === 'refait_neuf' ? 'refait_neuf' : 'bon') : 'a_rafraichir';
+  e.inconnus = (e.inconnus || []).filter(k => !(k in corr) && !(k === 'etat' && corr.niveau_travaux));
+  ['parking', 'terrasse', 'clim', 'vue_mer', 'distance_mer'].forEach(k => {
+    if (e[k] == null && !e.inconnus.includes(k)) e.inconnus.push(k);
+  });
   return e;
 }
 // Curseurs : réglages globaux (fin) <- surcharges enregistrées du bien <- curseurs en cours (fiche)
@@ -79,6 +83,61 @@ function fatigue(b) {
   else texte = `En ligne depuis ${jours} j` + (baisses ? `, déjà baissé de ${baissePct} %` : '');
   return { jours, baisses, baissePct, niveau, texte, republie: !!b.doublon_de };
 }
+
+/* ================== Prix au m² comparé aux annonces en ligne ==================
+   Médiane des biens en ligne du même type (au moins 5), sinon de toute la commune. Simple repère :
+   les annonces ne sont pas des prix de vente signés (DVF), et ce n'est pas dans les étoiles. */
+let refCache = null;
+function prixM2Ref(b) {
+  if (!b || !b.surface) return null;
+  const cle = Sync.data.biens.size + ':' + Math.floor(Date.now() / 5000);
+  if (!refCache || refCache.cle !== cle) {
+    const med = l => { l = l.slice().sort((x, y) => x - y); const m = l.length >> 1; return l.length % 2 ? l[m] : (l[m - 1] + l[m]) / 2; };
+    const par = {};
+    for (const x of Sync.data.biens.values()) {
+      if (x.statut_annonce !== 'en_ligne' || !x.surface || !x.prix) continue;
+      const k = x.commune + '|' + x.type, kc = x.commune + '|*';
+      (par[k] = par[k] || []).push(x.prix / x.surface); (par[kc] = par[kc] || []).push(x.prix / x.surface);
+    }
+    const m = {}; for (const k in par) m[k] = { v: med(par[k]), n: par[k].length };
+    refCache = { cle, m };
+  }
+  const t = refCache.m[b.commune + '|' + b.type], c = refCache.m[b.commune + '|*'];
+  const ref = t && t.n >= 5 ? { ...t, libelle: (window.DealListe && DealListe.TYPES[b.type]) || b.type } : c && c.n >= 5 ? { ...c, libelle: 'de la commune' } : null;
+  if (!ref) return null;
+  return { ecart: Math.round((b.prix / b.surface / ref.v - 1) * 100), n: ref.n, libelle: ref.libelle, mediane: Math.round(ref.v) };
+}
+
+/* ================== Galerie plein écran (← → Échap, swipe, touche retour) ================== */
+let lb = null, lbRetour = false;
+function galerie(urls, i) {
+  if (!urls.length) return;
+  if (!lb) {
+    lb = document.createElement('div'); lb.className = 'lb'; lb.hidden = true;
+    lb.innerHTML = '<img alt="" referrerpolicy="no-referrer"><button class="lb-x" aria-label="Fermer">✕</button><button class="lb-n g" aria-label="Précédente">‹</button><button class="lb-n d" aria-label="Suivante">›</button><span class="lb-c"></span>';
+    document.body.appendChild(lb);
+    lb.addEventListener('click', e => {
+      if (e.target.closest('.lb-n')) { lbAller(e.target.closest('.lb-n').classList.contains('d') ? 1 : -1); return; }
+      if (e.target.tagName !== 'IMG') fermerGalerie();
+    });
+    let x0 = null;
+    lb.addEventListener('pointerdown', e => { x0 = e.clientX; });
+    lb.addEventListener('pointerup', e => { if (x0 != null && Math.abs(e.clientX - x0) > 50) lbAller(e.clientX < x0 ? 1 : -1); x0 = null; });
+  }
+  lb.urls = urls; lb.i = i || 0; lbMontrer();
+  if (lb.hidden) { lb.hidden = false; history.pushState({ feuille: 1, galerie: 1 }, '', location.href); }
+}
+function lbAller(d) { lb.i = (lb.i + d + lb.urls.length) % lb.urls.length; lbMontrer(); }
+function lbMontrer() { lb.querySelector('img').src = lb.urls[lb.i]; lb.querySelector('.lb-c').textContent = (lb.i + 1) + ' / ' + lb.urls.length; }
+function fermerGalerie(depuisRetour) {
+  if (!lb || lb.hidden) return;
+  lb.hidden = true;
+  if (!depuisRetour) { lbRetour = true; history.back(); }
+}
+addEventListener('keydown', e => {
+  if (!lb || lb.hidden) return;
+  if (e.key === 'ArrowRight') lbAller(1); else if (e.key === 'ArrowLeft') lbAller(-1); else if (e.key === 'Escape') { e.stopImmediatePropagation(); fermerGalerie(); }
+}, true);
 
 /* ================== Étoiles ================== */
 function etoilesSvg(n, big) {
@@ -119,6 +178,8 @@ function closeSheet() {
   if (entree) { retourEnCours = true; history.back(); }   // retire l'entrée ajoutée à l'ouverture
 }
 addEventListener('popstate', () => {
+  if (lbRetour) { lbRetour = false; return; }                         // fin du history.back() de la galerie
+  if (lb && !lb.hidden) { fermerGalerie(true); return; }              // touche retour : ferme la galerie seule
   if (retourEnCours) {   // fin du history.back() de closeSheet ; une feuille rouverte entre-temps reprend son entrée
     retourEnCours = false;
     if (!sheet.hidden) history.pushState({ feuille: 1 }, '', location.href);
@@ -271,6 +332,7 @@ function renderAlerte() {
   });
   const R = Sync.reglagesPour('golfe-juan');
   if (R._manquants.length) msgs.push('Réglages incomplets sur le serveur (' + R._manquants.join(', ') + ') : valeurs par défaut utilisées');
+  if (R._paliers_migres) msgs.push('Ancien barème remplacé : étoiles sur le rendement ; budgets enregistrés conservés. Nouveaux budgets disponibles dans Réglages.');
   if (Sync.state.error && Date.now() - Sync.state.lastOk > 3600000) msgs.push('Pas de connexion au serveur depuis ' + ago(Sync.state.lastOk).replace('il y a ', ''));
   el.hidden = !msgs.length; el.innerHTML = msgs.map(esc).join('<br>');
 }
@@ -294,7 +356,7 @@ try { navigator.storage && navigator.storage.persist && navigator.storage.persis
 $('meBtn').addEventListener('click', () => window.ouvrirReglages && ouvrirReglages());
 
 window.Deal = { $, esc, eur, eurS, ago, dateFr, J, S, save, applyLook, vib, openSheet, closeSheet, toast, copier, calculer, bienEffectif,
-  curseursBien, fatigue, etoilesSvg, syncLabel, checkUpdate, appUrl, renderAlerte, VERSION, ENV, setOnSheetClose: f => { onSheetClose = f; } };
+  curseursBien, fatigue, etoilesSvg, prixM2Ref, galerie, syncLabel, checkUpdate, appUrl, renderAlerte, VERSION, ENV, setOnSheetClose: f => { onSheetClose = f; } };
 
 /* ================== Démarrage ================== */
 (async function demarrer() {

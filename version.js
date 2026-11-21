@@ -1,1 +1,1 @@
-self.DEAL_VERSION = '0.2.0';
+self.DEAL_VERSION = '0.4.0';

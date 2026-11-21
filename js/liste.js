@@ -35,7 +35,9 @@ function carteHtml(x) {
   if (fat.republie) bd.push('<span class="bdg">Republiée</span>');
   if (a.curseurs && Object.keys(a.curseurs).length) bd.push('<span class="bdg">Ajusté</span>');
   const ppm = b.surface ? Math.round(b.prix / b.surface) : null;
-  const eff = r.effort_hors_capital_mois;
+  const ref = Deal.prixM2Ref(b);   // info « prix bas » : n'entre pas dans les étoiles (le prix y est déjà via le rendement)
+  if (ref && ref.ecart <= -10) bd.unshift(`<span class="bdg good">Prix/m² ${ref.ecart} %</span>`);
+  const eff = r.effort_treso_mois;
   return `<button class="card bien${off ? ' off' : ''}" data-bien="${esc(b.lbc_id)}">
     <span class="ph"${photo ? ` style="background-image:url('${esc(photo)}')"` : ''}>${(b.photos || []).length > 1 ? `<span class="nb">${b.photos.length}</span>` : ''}</span>
     <span class="txt">
@@ -96,7 +98,7 @@ function renderListe() {
   });
   const rang = x => x.r.statut === 'ok' ? x.r.etoiles : x.r.statut === 'rejet' ? -1 : -2;
   const tri = {
-    etoiles: (a, b) => rang(b) - rang(a) || b.r.effort_hors_capital_mois - a.r.effort_hors_capital_mois,
+    etoiles: (a, b) => rang(b) - rang(a) || b.r.etoiles_non_arrondies - a.r.etoiles_non_arrondies,
     prix: (a, b) => a.b.prix - b.b.prix,
     recent: (a, b) => (b.b.premiere_vue || 0) - (a.b.premiere_vue || 0),
     fatigue: (a, b) => (b.fat.jours || 0) - (a.fat.jours || 0)
@@ -105,7 +107,7 @@ function renderListe() {
   const exclus = tous.filter(x => x.r.statut === 'exclu').length;
   const actifs = (f.min || f.type || f.favoris || f.statut || f.seulsNouveaux || q) ? ' · filtres actifs' : '';
   $('resume').textContent = `${l.length} bien${l.length > 1 ? 's' : ''} affiché${l.length > 1 ? 's' : ''} sur ${tous.length}` +
-    (exclus && !f.voirExclus ? ` (${exclus} exclu${exclus > 1 ? 's' : ''} masqué${exclus > 1 ? 's' : ''})` : '') + actifs + ' · montant = effort mensuel hors capital';
+    (exclus && !f.voirExclus ? ` (${exclus} exclu${exclus > 1 ? 's' : ''} masqué${exclus > 1 ? 's' : ''})` : '') + actifs + ' · étoiles = rendement · montant = cash-flow mensuel après IS';
   $('fPlus').textContent = actifs ? 'Filtres •' : 'Filtres';
   $('biens').innerHTML = l.length ? l.map(carteHtml).join('')
     : `<p class="vide">${tous.length ? 'Aucun bien ne correspond aux filtres.' : (Sync.state.lastOk ? 'Aucun bien en base pour l\'instant.' : 'Chargement des biens…')}</p>`;
@@ -117,6 +119,8 @@ function renderNouveautes() {
   if (!Sync.state.visitePrecedente) { el.hidden = true; return; }
   const nouv = biensCalcules().filter(x => estNouveau(x) && x.r.statut === 'ok');
   if (!nouv.length) { el.hidden = true; return; }
+  // La faisabilité juridique est « à vérifier » par défaut pour tous les biens : en faire une condition
+  // supprimerait la bannière. Les exclus et rejets sont déjà écartés (statut ok) ; la fiche rappelle le reste.
   const top = nouv.filter(x => x.r.etoiles >= 5).length, bons = nouv.filter(x => x.r.etoiles >= 4).length;
   const txt = top ? `<b>${top} nouveau${top > 1 ? 'x' : ''} bien${top > 1 ? 's' : ''} 5 étoiles</b> depuis votre dernière visite`
     : bons ? `<b>${bons} nouveau${bons > 1 ? 'x' : ''} bien${bons > 1 ? 's' : ''} 4 étoiles ou plus</b> depuis votre dernière visite`
