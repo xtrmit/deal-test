@@ -41,7 +41,7 @@ function carteHtml(x) {
     <span class="txt">
       <span class="ti">${esc(TYPES[b.type] || '')} · ${b.surface || '?'} m² · ${esc(b.titre)}</span>
       <span class="px">${Deal.eur(b.prix)}${ppm ? `<small>${ppm.toLocaleString('fr-FR')} €/m²</small>` : ''}</span>
-      <span>${r.statut === 'ok' ? Deal.etoilesSvg(r.etoiles) : '<span class="muted">—</span>'} <span class="eff ${eff >= 0 ? 'pos' : 'neg'}">${r.statut === 'ok' ? Deal.eurS(eff) + '/mois hors capital' : ''}</span></span>
+      <span>${r.statut === 'ok' ? Deal.etoilesSvg(r.etoiles) : '<span class="muted">—</span>'} <span class="eff ${eff >= 0 ? 'pos' : 'neg'}">${r.statut === 'ok' ? Deal.eurS(eff) + '/mois' : ''}</span></span>
       <span class="badges">${bd.join('')}</span>
     </span>
     ${a.favori ? '<span class="fav" aria-label="Favori">★</span>' : ''}
@@ -105,7 +105,7 @@ function renderListe() {
   const exclus = tous.filter(x => x.r.statut === 'exclu').length;
   const actifs = (f.min || f.type || f.favoris || f.statut || f.seulsNouveaux || q) ? ' · filtres actifs' : '';
   $('resume').textContent = `${l.length} bien${l.length > 1 ? 's' : ''} affiché${l.length > 1 ? 's' : ''} sur ${tous.length}` +
-    (exclus && !f.voirExclus ? ` (${exclus} exclu${exclus > 1 ? 's' : ''} masqué${exclus > 1 ? 's' : ''})` : '') + actifs;
+    (exclus && !f.voirExclus ? ` (${exclus} exclu${exclus > 1 ? 's' : ''} masqué${exclus > 1 ? 's' : ''})` : '') + actifs + ' · montant = effort mensuel hors capital';
   $('fPlus').textContent = actifs ? 'Filtres •' : 'Filtres';
   $('biens').innerHTML = l.length ? l.map(carteHtml).join('')
     : `<p class="vide">${tous.length ? 'Aucun bien ne correspond aux filtres.' : (Sync.state.lastOk ? 'Aucun bien en base pour l\'instant.' : 'Chargement des biens…')}</p>`;
