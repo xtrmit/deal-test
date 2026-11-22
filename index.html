@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-title" content="Deal">
 <title>Deal</title>
 <link rel="manifest" id="manifest" href="manifest.webmanifest">
-<link rel="icon" id="favicon" href="icons/icon-192.png" type="image/png">
+<link rel="icon" id="favicon" href="icons/favicon-64.png" type="image/png">
 <link rel="apple-touch-icon" id="appleIcon" href="icons/apple-touch-icon.png">
 <script>
   /* Environnement : prod = github.io/deal/, test = github.io/deal-test/, sinon local (PC). */
@@ -23,7 +23,7 @@
     window.DEAL_ENV = env;
     if (env !== 'prod') {
       document.getElementById('manifest').href = 'manifest-test.webmanifest';
-      document.getElementById('favicon').href = 'icons/test-icon.svg'; document.getElementById('favicon').type = 'image/svg+xml';
+      document.getElementById('favicon').href = 'icons/test-favicon-64.png';
       document.getElementById('appleIcon').href = 'icons/test-apple-touch-icon.png';
       document.title = 'Deal ' + env.toUpperCase();
       document.querySelector('meta[name="apple-mobile-web-app-title"]').content = 'Deal T';
@@ -42,7 +42,7 @@
 <div class="app">
   <header class="top">
     <div class="brand">
-      <svg width="30" height="30" viewBox="0 0 30 30" fill="none" aria-hidden="true"><path d="M5 14l10-8 10 8M8 12.5V24h14V12.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 13.5l1.4 2.8 3.1.5-2.2 2.2.5 3.1-2.8-1.5-2.8 1.5.5-3.1-2.2-2.2 3.1-.5z" fill="currentColor"/></svg>
+      <img src="icons/glyphe-64.png" width="29" height="30" alt="" aria-hidden="true">
       <span>Deal</span>
       <span class="tag" id="envTag" hidden></span>
     </div>
@@ -76,7 +76,7 @@
 <!-- Connexion (premier lancement) -->
 <div class="join" id="join" hidden>
   <div class="join-in">
-    <svg class="join-logo" width="72" height="72" viewBox="0 0 30 30" fill="none" aria-hidden="true"><path d="M5 14l10-8 10 8M8 12.5V24h14V12.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M15 13.5l1.4 2.8 3.1.5-2.2 2.2.5 3.1-2.8-1.5-2.8 1.5.5-3.1-2.2-2.2 3.1-.5z" fill="currentColor"/></svg>
+    <img class="join-logo" src="icons/glyphe-160.png" width="77" height="80" alt="" aria-hidden="true">
     <h1>Deal</h1>
     <div class="seg two" id="joinMode">
       <button data-mode="tel" class="sel">Téléphone</button>

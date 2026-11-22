@@ -14,8 +14,8 @@ const ASSETS = [
   'fonts/fredoka-latin-500-normal.woff2', 'fonts/fredoka-latin-600-normal.woff2',
   'fonts/nunito-latin-400-normal.woff2', 'fonts/nunito-latin-600-normal.woff2',
   'fonts/nunito-latin-700-normal.woff2', 'fonts/nunito-latin-800-normal.woff2',
-  'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png',
-  'icons/test-icon.svg', 'icons/test-icon-192.png', 'icons/test-icon-512.png', 'icons/test-maskable-512.png', 'icons/test-apple-touch-icon.png'
+  'icons/favicon-64.png', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/maskable-512.png', 'icons/apple-touch-icon.png', 'icons/glyphe-64.png', 'icons/glyphe-160.png',
+  'icons/test-favicon-64.png', 'icons/test-icon-192.png', 'icons/test-icon-512.png', 'icons/test-maskable-512.png', 'icons/test-apple-touch-icon.png'
 ];
 
 self.addEventListener('install', e => {
