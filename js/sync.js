@@ -73,6 +73,7 @@
     visitePrecedente: ls.get('visitePrec', 0),
     communes: ls.get('communes', []),
     runs: ls.get('runs', []),
+    partages: ls.get('partages', []),      // liens de fiches figées encore valables
     pending: 0, busy: false, again: false, revoked: false, error: '', ouvert: false
   };
   const listeners = [];
@@ -136,6 +137,7 @@
       if (ouverture) { S.ouvert = true; S.visitePrecedente = j.visite_precedente || 0; ls.set('visitePrec', S.visitePrecedente); }
       S.communes = j.communes || S.communes; ls.set('communes', S.communes);
       S.runs = j.derniers_runs || S.runs; ls.set('runs', S.runs);
+      if (Array.isArray(j.partages)) { S.partages = j.partages; ls.set('partages', S.partages); }
       S.since = j.now || S.since; ls.set('since', S.since);
       S.lastOk = Date.now(); ls.set('lastOk', S.lastOk);
       S.error = '';
@@ -205,6 +207,19 @@
     return j;
   }
 
+  /* ---------- Fiches figées partagées ---------- */
+  async function partager(lbc_id, instantane, jours) {
+    const j = await appel('partager', { lbc_id, instantane, jours });
+    S.partages = S.partages.concat([{ slug: j.slug, lbc_id, cree: Date.now(), expire: j.expire, url: j.url }]); ls.set('partages', S.partages);
+    emit(['partages']);
+    return j;
+  }
+  async function retirerPartage(slug) {
+    await appel('retirer_partage', { slug });
+    S.partages = S.partages.filter(p => p.slug !== slug); ls.set('partages', S.partages);
+    emit(['partages']);
+  }
+
   /* ---------- Réglages de calcul d'une commune ---------- */
   function reglagesPour(commune) {
     const g = (cle, c) => { const r = M.reglages.get(cle + '|' + c); return r ? r.valeur : null; };
@@ -231,7 +246,7 @@
   const login = (identifiant, mot_de_passe, nom) => connecter({ action: 'login', identifiant, mot_de_passe, nom });
   const appairer = (code, nom) => connecter({ action: 'appairer', code, nom });
   async function quitter() {
-    S.auth = null; ['auth', 'since', 'lastOk', 'visitePrec', 'communes', 'runs'].forEach(ls.del);
+    S.auth = null; ['auth', 'since', 'lastOk', 'visitePrec', 'communes', 'runs', 'partages'].forEach(ls.del); S.partages = [];
     S.since = 0; S.lastOk = 0; S.revoked = false; S.ouvert = false;
     await tx(['biens', 'prix', 'annotations', 'reglages', 'analyses', 'file'], 'readwrite', t => ['biens', 'prix', 'annotations', 'reglages', 'analyses', 'file'].forEach(s => t.objectStore(s).clear()));
     M.biens.clear(); M.prix.clear(); M.annotations.clear(); M.reglages.clear(); M.analyses.clear();
@@ -247,6 +262,6 @@
   window.DealSync = {
     state: S, data: M, BASE, ENV, store: ls,
     on(f) { listeners.push(f); },
-    charger, sync, annoter, reglage, appel, login, appairer, quitter, reglagesPour, analyser
+    charger, sync, annoter, reglage, appel, login, appairer, quitter, reglagesPour, analyser, partager, retirerPartage
   };
 })();

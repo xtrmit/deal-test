@@ -159,6 +159,57 @@ function iaHtml(b) {
     </details>${texte}</div>`;
 }
 
+// ---------- Partage d'une fiche figée : instantané de ce qui est affiché, page publique servie par le serveur ----------
+function instantane(b, avecNotes) {
+  const r = Deal.calculer(b, F.enCours), h = r.hypotheses, e = Deal.bienEffectif(b), a = Sync.data.annotations.get(b.lbc_id) || {};
+  const an = (Sync.data.analyses || new Map()).get(b.lbc_id), ar = (an && an.resultat) || null;
+  const fat = Deal.fatigue(b), ref = Deal.prixM2Ref(b), pc = x => String(x).replace('.', ',') + ' %', o = v => VAL(v);
+  return {
+    titre: b.titre, prix_txt: Deal.eur(b.prix),
+    sous_titre: [DealListe.TYPES[h.type] || h.type, b.surface + ' m²', b.surface ? Math.round(b.prix / b.surface).toLocaleString('fr-FR') + ' €/m²' : '',
+      ref ? (ref.ecart > 0 ? '+' : '') + ref.ecart + ' % vs annonces ' + ref.libelle : '', 'DPE ' + (b.dpe || '?'), 'Golfe-Juan'].filter(Boolean).join(' · '),
+    statut: r.statut, etoiles: r.etoiles, verdict: r.statut === 'exclu' ? 'Exclu' : r.statut === 'rejet' ? 'Perd de l\'argent même sans crédit' : '',
+    rendement_txt: pc(r.rendement_net_pct), cash_flow_mois: r.effort_treso_mois, hors_capital_mois: r.effort_hors_capital_mois, cout_total_txt: Deal.eur(r.cout_total),
+    chiffres: [
+      ['Loyers encaissés / an', Deal.eur(r.revenus_bruts_an)], ['Conciergerie + plateforme', '−' + Deal.eur(r.frais_gestion_an)],
+      ['Charges fixes / an', '−' + Deal.eur(h.charges_mois * 12)], ['Entretien, réserve, CRL / an', '−' + Deal.eur(r.entretien_courant_an + r.reserve_renouvellement_an + r.crl_an)],
+      ['Solde d\'exploitation / an', Deal.eurS(r.net_avant_credit_an)], ['Prix d\'achat', Deal.eur(h.prix_achat) + (h.nego_pct ? ' (négocié −' + h.nego_pct + ' %)' : '')],
+      ['Notaire', Deal.eur(r.notaire_eur)], ['Travaux + meubles', Deal.eur(h.travaux_eur + h.meubles_eur)], ['Frais bancaires', Deal.eur(r.frais_financement_eur)],
+      ['Coût total du projet', Deal.eur(r.cout_total)], ['Apport', Deal.eur(r.apport)], ['Emprunt', Deal.eur(r.emprunt)],
+      ['Mensualité (assurance comprise)', Deal.eur(r.mensualite_assurance_comprise)], ['Cash-flow après IS / mois', Deal.eurS(r.effort_treso_mois)],
+      ['Capital remboursé / mois', Deal.eur(r.capital_rembourse_an1 / 12)], ['Coût réel hors capital / mois', Deal.eurS(r.effort_hors_capital_mois)],
+      ['Résultat fiscal année 1', Deal.eurS(r.resultat_fiscal_an1)],
+      r.is_autre_eur > 0 ? ['IS économisé par la société (an 1)', Deal.eur(r.economie_is_societe_an1)] : ['IS année 1', Deal.eur(r.is_du_an1)]],
+    hypotheses: [
+      ['Prix moyen par nuit', Deal.eur(h.adr)], ['Occupation', Math.round(h.occ_pct) + ' % de ' + h.jours_ouverts_an + ' nuits'],
+      ['Conciergerie + plateforme', pc(Math.round(h.frais_gestion_pct * 10) / 10)], ['Charges fixes (copro incluse)', Deal.eur(h.charges_mois) + '/mois'],
+      ['Travaux (aléas compris)', Deal.eur(h.travaux_eur)], ['Meubles', Deal.eur(h.meubles_eur)],
+      ['Apport', h.apport_pct + ' % du prix'], ['Crédit', pc(h.taux_pct) + ' sur ' + h.duree_ans + ' ans']],
+    caracteristiques: [
+      ['Type de location', DealListe.TYPES[h.type] || h.type], ['Surface', b.surface + ' m²'], ['DPE', b.dpe || '?'], ['Étage', e.etage || '?'],
+      ['Distance à la mer à pied', o(e.distance_mer)], ['Terrasse / jardin', o(e.terrasse)], ['Parking', o(e.parking)], ['Climatisation', o(e.clim)],
+      ['Vue mer', o(e.vue_mer)], ['État', o(e.etat)], ['Travaux', o(e.niveau_travaux)],
+      ['Copropriété', e.charges_copro_an ? Deal.eur(e.charges_copro_an) + '/an' : '?'], ['Annonce', fat.texte]],
+    ia: ar ? { synthese: ar.synthese, points_forts: ar.points_forts, points_faibles: ar.points_faibles, risques: ar.risques, questions: ar.questions_visite } : null,
+    notes: avecNotes ? (a.notes || '').slice(0, 3000) : ''
+  };
+}
+function partageHtml(b) {
+  const liens = (Sync.state.partages || []).filter(p => p.lbc_id === b.lbc_id && p.expire > Date.now());
+  const P = F.partage || { jours: 30, notes: false };
+  if (!F.partageOuvert && !liens.length) return '';
+  return `<div class="card field partage">
+    <span class="label">Partager une fiche figée</span>
+    <p class="note">Crée une page web avec les photos, les chiffres et les hypothèses <b>tels qu'ils sont affichés maintenant</b> (curseurs en cours compris). Elle ne changera plus. Toute personne qui a le lien peut la voir, sans compte.</p>
+    <div class="seg">${[7, 30, 90].map(j => `<button data-pj="${j}" class="${P.jours === j ? 'sel' : ''}">${j} jours</button>`).join('')}</div>
+    <label class="row" style="gap:8px;font-weight:700"><input type="checkbox" data-pn ${P.notes ? 'checked' : ''}> Inclure mes notes</label>
+    <button class="small acc" data-pcree ${F.partageEnCours ? 'disabled' : ''}>${F.partageEnCours ? 'Création…' : 'Créer le lien'}</button>
+    ${liens.map(p => `<div class="lienp"><span class="note">Lien valable jusqu'au ${Deal.dateFr(p.expire)}</span>
+      <div class="row wrap"><button class="small grow" data-pcopie="${esc(p.url)}">Copier</button>${navigator.share ? `<button class="small grow" data-ppart="${esc(p.url)}">Envoyer…</button>` : ''}
+      <a class="small btnlien grow" href="${esc(p.url)}" target="_blank" rel="noopener">Ouvrir</a><button class="small grow danger" data-pret="${esc(p.slug)}">Retirer</button></div></div>`).join('')}
+  </div>`;
+}
+
 function ficheHtml(b) {
   const a = Sync.data.annotations.get(b.lbc_id) || {};
   const r = Deal.calculer(b, F.enCours);
@@ -192,7 +243,9 @@ function ficheHtml(b) {
       <button class="round" data-fav aria-label="${a.favori ? 'Retirer des favoris' : 'Ajouter aux favoris'}" style="font-size:1.4em;color:var(--star)">${a.favori ? '★' : '☆'}</button>
     </div>
     <p class="note">${esc(b.titre)}</p>
-    <a class="lien" href="${esc(b.url)}" target="_blank" rel="noopener noreferrer">Voir l'annonce sur LeBonCoin ↗</a>
+    <div class="row wrap"><a class="lien grow" href="${esc(b.url)}" target="_blank" rel="noopener noreferrer">Voir l'annonce sur LeBonCoin ↗</a>
+      <button class="lien grow" data-pouvrir>Partager une fiche figée</button></div>
+    <div id="partage">${partageHtml(b)}</div>
     <div id="verdict">${verdictHtml(r, b)}</div>
     <div id="ia">${iaHtml(b)}</div>
     <div class="card field"><span class="label">Vendeur qui fatigue</span>
@@ -280,6 +333,28 @@ function clicFiche(e) {
   if (t.closest('[data-save]')) {
     const garde = Object.assign(cur, F.enCours); F.enCours = {};
     Sync.annoter(b.lbc_id, { curseurs: garde }); Deal.toast('Réglages enregistrés pour ce bien'); setTimeout(rerendre, 0); return;
+  }
+  // ----- partage -----
+  if (t.closest('[data-pouvrir]')) { F.partageOuvert = !F.partageOuvert; $('partage').innerHTML = partageHtml(b); if (F.partageOuvert) $('partage').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); return; }
+  const pj = t.closest('[data-pj]');
+  if (pj) { F.partage = Object.assign({ jours: 30, notes: false }, F.partage, { jours: +pj.dataset.pj }); $('partage').innerHTML = partageHtml(b); return; }
+  if (t.closest('[data-pn]')) { F.partage = Object.assign({ jours: 30, notes: false }, F.partage, { notes: t.closest('[data-pn]').checked }); return; }
+  if (t.closest('[data-pcree]') && !F.partageEnCours) {
+    const P = F.partage || { jours: 30, notes: false }, id = b.lbc_id;
+    F.partageEnCours = true; $('partage').innerHTML = partageHtml(b);
+    Sync.partager(id, instantane(b, P.notes), P.jours).then(j => {
+      Deal.toast('Lien créé' + (j.photos ? ' avec ' + j.photos + ' photos' : '') + ' : copie-le ou envoie-le ci-dessous');
+    }).catch(err => Deal.toast(err.message)).finally(() => { if (F && F.id === id) { F.partageEnCours = false; $('partage').innerHTML = partageHtml(b); } });
+    return;
+  }
+  const pc = t.closest('[data-pcopie]'); if (pc) { Deal.copier(pc.dataset.pcopie, 'Lien copié'); return; }
+  const pp = t.closest('[data-ppart]'); if (pp) { navigator.share({ title: b.titre, url: pp.dataset.ppart }).catch(() => {}); return; }
+  const pr = t.closest('[data-pret]');
+  if (pr) {
+    pr.disabled = true;
+    Sync.retirerPartage(pr.dataset.pret).then(() => Deal.toast('Lien retiré : la page n\'est plus accessible'))
+      .catch(err => { pr.disabled = false; Deal.toast(err.message); }).finally(() => { if (F && F.id === b.lbc_id) $('partage').innerHTML = partageHtml(b); });
+    return;
   }
   const bi = t.closest('[data-ia]');
   if (bi && !F.iaEnCours) {

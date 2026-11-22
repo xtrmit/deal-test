@@ -179,6 +179,12 @@ video.scan{width:100%;border-radius:16px;background:#000}
 .toast.on{opacity:1;transform:none;pointer-events:auto}
 .toast button{border:0;background:transparent;color:inherit;font-weight:800;text-decoration:underline;min-height:40px;padding:0 10px}
 
+/* Partage */
+.partage .lienp{border-top:1px solid var(--line);padding-top:8px;display:flex;flex-direction:column;gap:6px}
+.partage .btnlien{display:flex;align-items:center;justify-content:center;text-decoration:none;color:inherit}
+button.lien{background:transparent;font:inherit;font-weight:800;cursor:pointer}
+.danger{color:var(--bad)}
+
 /* Analyse IA */
 .ia .ia-syn{margin:2px 0;font-weight:700;line-height:1.45}
 .ia .ia-t{display:block;margin-top:8px;font-size:.85em}
